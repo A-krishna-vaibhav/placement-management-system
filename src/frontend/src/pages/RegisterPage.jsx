@@ -23,6 +23,18 @@ const DEPARTMENTS = [
   'Chemistry','Biotechnology','Management Studies','Other',
 ];
 
+// Defined OUTSIDE RegisterPage to prevent remount on every keystroke
+const Field = ({ id, label, children, error, hint }) => (
+  <div>
+    <label htmlFor={id} className="form-label">
+      {label}
+      {hint && <span className="text-xs text-surface-400 font-normal ml-1.5">{hint}</span>}
+    </label>
+    {children}
+    {error && <p className="text-red-500 text-xs mt-1.5 flex items-center gap-1">⚠ {error}</p>}
+  </div>
+);
+
 const RegisterPage = () => {
   const { register } = useAuth();
   const navigate = useNavigate();
@@ -80,14 +92,6 @@ const RegisterPage = () => {
       setSubmitting(false);
     }
   };
-
-  const Field = ({ id, label, children, error, hint }) => (
-    <div>
-      <label htmlFor={id} className="form-label">{label}{hint && <span className="text-xs text-surface-400 font-normal ml-1.5">{hint}</span>}</label>
-      {children}
-      {error && <p className="text-red-500 text-xs mt-1.5 flex items-center gap-1">⚠ {error}</p>}
-    </div>
-  );
 
   return (
     <div className="min-h-screen flex">
