@@ -1,38 +1,42 @@
-/**
- * Admin User Management Page
- */
-
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { adminAPI } from '../services/api';
 import toast from 'react-hot-toast';
 import {
-  HiOutlineUsers, HiOutlineSearch, HiOutlineRefresh,
+  HiOutlineSearch, HiOutlineRefresh,
   HiOutlineCheck, HiOutlineBan, HiOutlineTrash, HiOutlineFilter,
   HiOutlineUserAdd,
 } from 'react-icons/hi';
+import { PageHeader, Badge } from '../components/ui';
 
-const ROLES    = ['Student', 'Faculty', 'Company', 'Admin'];
-const STATUSES = ['Active', 'Inactive', 'Deactivated'];
+const ROLES    = ['STUDENT', 'FACULTY', 'TPO', 'COMPANY', 'ADMIN'];
+const STATUSES = ['ACTIVE', 'UNVERIFIED', 'PENDING_APPROVAL', 'SUSPENDED', 'DEACTIVATED'];
 
-const roleBadgeClass = (role) => {
-  switch (role) {
-    case 'Admin':   return 'bg-rose-50   text-rose-700   ring-1 ring-rose-200';
-    case 'Faculty': return 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200';
-    case 'Company': return 'bg-violet-50 text-violet-700  ring-1 ring-violet-200';
-    default:        return 'bg-primary-50 text-primary-700 ring-1 ring-primary-200';
+const STATUS_LABELS = {
+  ACTIVE: 'Active', UNVERIFIED: 'Unverified',
+  PENDING_APPROVAL: 'Pending Approval', SUSPENDED: 'Suspended', DEACTIVATED: 'Deactivated',
+};
+
+const statusBadgeVariant = (status) => {
+  switch (status) {
+    case 'ACTIVE':           return 'success';
+    case 'UNVERIFIED':       return 'warning';
+    case 'PENDING_APPROVAL': return 'warning';
+    case 'SUSPENDED':        return 'danger';
+    case 'DEACTIVATED':      return 'neutral';
+    default:                 return 'neutral';
   }
 };
 
 const AdminUsersPage = () => {
   const { getToken } = useAuth();
 
-  const [users, setUsers]         = useState([]);
-  const [loading, setLoading]     = useState(true);
+  const [users, setUsers]               = useState([]);
+  const [loading, setLoading]           = useState(true);
   const [filterRole, setFilterRole]     = useState('');
   const [filterStatus, setFilterStatus] = useState('');
-  const [search, setSearch]       = useState('');
-  const [totalUsers, setTotalUsers] = useState(0);
+  const [search, setSearch]             = useState('');
+  const [totalUsers, setTotalUsers]     = useState(0);
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -68,7 +72,7 @@ const AdminUsersPage = () => {
     try {
       const token = await getToken();
       await adminAPI.updateUserStatus(token, userId, newStatus);
-      toast.success(`User ${newStatus.toLowerCase()}.`);
+      toast.success(`User ${STATUS_LABELS[newStatus] || newStatus}.`);
       setUsers((prev) => prev.map((u) => (u.uid === userId ? { ...u, status: newStatus } : u)));
     } catch (err) {
       toast.error(err.message || 'Failed to update status.');
@@ -88,44 +92,35 @@ const AdminUsersPage = () => {
     }
   };
 
-  // Client-side search filter
   const filtered = users.filter((u) => {
     if (!search) return true;
     const q = search.toLowerCase();
     return (
-      u.name?.toLowerCase().includes(q) ||
-      u.email?.toLowerCase().includes(q) ||
-      u.department?.toLowerCase().includes(q)
+      u.fullName?.toLowerCase().includes(q) ||
+      u.email?.toLowerCase().includes(q)
     );
   });
 
-  const pendingCount = users.filter((u) => u.status === 'Inactive').length;
+  const pendingCount = users.filter((u) => u.status === 'PENDING_APPROVAL').length;
 
   return (
     <div className="space-y-6 animate-slide-up">
-      {/* Page Header */}
-      <div className="page-header">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-rose-50 rounded-xl flex items-center justify-center ring-1 ring-rose-200">
-            <HiOutlineUsers className="w-5 h-5 text-rose-600" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-surface-900">User Management</h1>
-            <p className="text-sm text-surface-500">{totalUsers} total users registered</p>
-          </div>
-        </div>
-        <button onClick={fetchUsers} className="btn-secondary gap-2 text-sm">
-          <HiOutlineRefresh className="w-4 h-4" />
-          Refresh
-        </button>
-      </div>
+      <PageHeader
+        title="User Management"
+        subtitle={`${totalUsers} total users registered`}
+        actions={
+          <button onClick={fetchUsers} className="btn-secondary gap-2 text-sm">
+            <HiOutlineRefresh className="w-4 h-4" />
+            Refresh
+          </button>
+        }
+      />
 
-      {/* Pending alert */}
       {pendingCount > 0 && (
         <div className="alert-warning">
           <HiOutlineUserAdd className="w-5 h-5 flex-shrink-0" />
           <span>
-            <strong>{pendingCount} user{pendingCount > 1 ? 's' : ''}</strong> pending approval — set their status to <em>Active</em> to grant access.
+            <strong>{pendingCount} company account{pendingCount > 1 ? 's' : ''}</strong> pending approval.
           </span>
         </div>
       )}
@@ -133,19 +128,17 @@ const AdminUsersPage = () => {
       {/* Filters */}
       <div className="card p-4">
         <div className="flex flex-wrap gap-3 items-center">
-          {/* Search */}
           <div className="relative flex-1 min-w-[200px]">
-            <HiOutlineSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-400" />
+            <HiOutlineSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400" />
             <input
               type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search name, email, department…"
+              placeholder="Search name or email…"
               className="input-field pl-9 text-sm py-2"
             />
           </div>
 
-          {/* Role filter */}
           <div className="flex items-center gap-2">
-            <HiOutlineFilter className="w-4 h-4 text-surface-400 flex-shrink-0" />
+            <HiOutlineFilter className="w-4 h-4 text-ink-400 flex-shrink-0" />
             <select value={filterRole} onChange={(e) => setFilterRole(e.target.value)}
               className="input-field text-sm py-2 w-36">
               <option value="">All Roles</option>
@@ -153,16 +146,15 @@ const AdminUsersPage = () => {
             </select>
           </div>
 
-          {/* Status filter */}
           <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
-            className="input-field text-sm py-2 w-40">
+            className="input-field text-sm py-2 w-48">
             <option value="">All Statuses</option>
-            {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+            {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
           </select>
 
           {(filterRole || filterStatus || search) && (
             <button onClick={() => { setFilterRole(''); setFilterStatus(''); setSearch(''); }}
-              className="btn-ghost text-sm px-3 py-2 text-surface-400 hover:text-red-500">
+              className="btn-ghost text-sm px-3 py-2 text-ink-400 hover:text-danger">
               Clear
             </button>
           )}
@@ -173,23 +165,19 @@ const AdminUsersPage = () => {
       <div className="table-wrapper">
         {loading ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
-            <svg className="animate-spin h-8 w-8 text-primary-400" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
-            </svg>
-            <p className="text-sm text-surface-400">Loading users…</p>
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-maroon-600" />
+            <p className="text-sm text-ink-400">Loading users…</p>
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-2">
-            <HiOutlineSearch className="w-10 h-10 text-surface-200" />
-            <p className="text-surface-400 text-sm">No users match your filters.</p>
+            <HiOutlineSearch className="w-10 h-10 text-ink-200" />
+            <p className="text-ink-400 text-sm">No users match your filters.</p>
           </div>
         ) : (
           <table className="min-w-full">
             <thead>
               <tr>
                 <th className="th">User</th>
-                <th className="th">Department</th>
                 <th className="th">Role</th>
                 <th className="th">Status</th>
                 <th className="th">Registered</th>
@@ -199,61 +187,47 @@ const AdminUsersPage = () => {
             <tbody>
               {filtered.map((user) => (
                 <tr key={user.uid} className="tr">
-                  {/* User */}
                   <td className="td">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
-                        <span className="text-primary-600 text-xs font-bold">
-                          {(user.name?.[0] || '?').toUpperCase()}
+                      <div className="w-8 h-8 rounded-full bg-maroon-100 flex items-center justify-center flex-shrink-0">
+                        <span className="text-maroon-700 text-xs font-bold">
+                          {(user.fullName?.[0] || '?').toUpperCase()}
                         </span>
                       </div>
                       <div>
-                        <p className="font-semibold text-surface-800 text-sm">{user.name}</p>
-                        <p className="text-xs text-surface-400">{user.email}</p>
+                        <p className="font-semibold text-ink-800 text-sm">{user.fullName}</p>
+                        <p className="text-xs text-ink-400">{user.email}</p>
                       </div>
                     </div>
                   </td>
 
-                  {/* Department */}
-                  <td className="td text-surface-500">{user.department}</td>
-
-                  {/* Role */}
                   <td className="td">
                     <select
                       value={user.role}
                       onChange={(e) => handleRoleChange(user.uid, e.target.value)}
-                      className={`badge ${roleBadgeClass(user.role)} cursor-pointer border-0 bg-transparent font-semibold text-xs py-1 px-2.5 rounded-full focus:outline-none focus:ring-2 focus:ring-primary-300`}
+                      className="text-xs font-medium cursor-pointer border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-maroon-300 rounded"
                     >
                       {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
                     </select>
                   </td>
 
-                  {/* Status */}
                   <td className="td">
-                    <span className={
-                      user.status === 'Active'      ? 'badge-active' :
-                      user.status === 'Inactive'    ? 'badge-inactive' :
-                                                      'badge-deactivated'
-                    }>
-                      {user.status === 'Active'   && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1 inline-block" />}
-                      {user.status === 'Inactive' && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 mr-1 inline-block" />}
-                      {user.status}
-                    </span>
+                    <Badge variant={statusBadgeVariant(user.status)}>
+                      {STATUS_LABELS[user.status] || user.status}
+                    </Badge>
                   </td>
 
-                  {/* Date */}
-                  <td className="td text-surface-400">
+                  <td className="td text-ink-400">
                     {user.createdAt
                       ? new Date(user.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
                       : '—'}
                   </td>
 
-                  {/* Actions */}
                   <td className="td">
                     <div className="flex justify-end items-center gap-1.5">
-                      {user.status !== 'Active' && (
+                      {user.status !== 'ACTIVE' && (
                         <button
-                          onClick={() => handleStatusChange(user.uid, 'Active')}
+                          onClick={() => handleStatusChange(user.uid, 'ACTIVE')}
                           className="btn btn-sm bg-emerald-50 text-emerald-700 hover:bg-emerald-100 ring-1 ring-emerald-200"
                           title="Activate"
                         >
@@ -261,10 +235,10 @@ const AdminUsersPage = () => {
                           Activate
                         </button>
                       )}
-                      {user.status !== 'Deactivated' && (
+                      {user.status !== 'DEACTIVATED' && (
                         <button
-                          onClick={() => handleStatusChange(user.uid, 'Deactivated')}
-                          className="btn btn-sm bg-amber-50 text-amber-700 hover:bg-amber-100 ring-1 ring-amber-200"
+                          onClick={() => handleStatusChange(user.uid, 'DEACTIVATED')}
+                          className="btn btn-sm bg-ink-50 text-ink-600 hover:bg-ink-100 ring-1 ring-ink-200"
                           title="Deactivate"
                         >
                           <HiOutlineBan className="w-3.5 h-3.5" />
@@ -272,7 +246,7 @@ const AdminUsersPage = () => {
                         </button>
                       )}
                       <button
-                        onClick={() => handleDelete(user.uid, user.name)}
+                        onClick={() => handleDelete(user.uid, user.fullName)}
                         className="btn btn-sm bg-red-50 text-red-600 hover:bg-red-100 ring-1 ring-red-200"
                         title="Delete permanently"
                       >
@@ -286,14 +260,13 @@ const AdminUsersPage = () => {
           </table>
         )}
 
-        {/* Footer row */}
         {!loading && filtered.length > 0 && (
-          <div className="px-5 py-3 bg-surface-50 border-t border-surface-200 flex items-center justify-between">
-            <p className="text-xs text-surface-400">
-              Showing <strong className="text-surface-600">{filtered.length}</strong> of <strong className="text-surface-600">{totalUsers}</strong> users
+          <div className="px-5 py-3 bg-cream-100 border-t border-ink-100 flex items-center justify-between">
+            <p className="text-xs text-ink-400">
+              Showing <strong className="text-ink-600">{filtered.length}</strong> of <strong className="text-ink-600">{totalUsers}</strong> users
             </p>
             {search && (
-              <p className="text-xs text-primary-500 font-medium">Filtered by: "{search}"</p>
+              <p className="text-xs text-maroon-600 font-medium">Filtered by: &ldquo;{search}&rdquo;</p>
             )}
           </div>
         )}

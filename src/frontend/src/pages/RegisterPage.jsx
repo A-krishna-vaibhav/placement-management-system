@@ -1,240 +1,380 @@
-/**
- * Registration Page
- */
-
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
-import { HiEye, HiEyeOff, HiOutlineMail, HiOutlineLockClosed, HiOutlineUser, HiOutlineOfficeBuilding } from 'react-icons/hi';
-import uohLogo from '../assets/Gemini_Generated_Image_lkoyazlkoyazlkoy.png';
+import {
+  HiOutlineEye, HiOutlineEyeOff,
+  HiOutlineMail, HiOutlineLockClosed, HiOutlineUser, HiOutlineOfficeBuilding, HiOutlineGlobe,
+} from 'react-icons/hi';
+import { Button, Alert, Logo } from '../components/ui';
+import { referenceAPI } from '../services/api';
 
 const UNIVERSITY_DOMAIN = import.meta.env.VITE_UNIVERSITY_EMAIL_DOMAIN || 'uohyd.ac.in';
 
 const ROLES = [
-  { value: 'Student',  label: 'Student' },
-  { value: 'Faculty',  label: 'Faculty (TPO)' },
-  { value: 'Company',  label: 'Company / Recruiter' },
+  { value: 'STUDENT', label: 'Student' },
+  { value: 'COMPANY', label: 'Company / Recruiter' },
 ];
 
-const DEPARTMENTS = [
-  'Computer Science','Artificial Intelligence','Information Technology',
-  'Electronics & Communication','Mathematics & Statistics','Physics',
-  'Chemistry','Biotechnology','Management Studies','Other',
-];
-
-// Defined OUTSIDE RegisterPage to prevent remount on every keystroke
 const Field = ({ id, label, children, error, hint }) => (
   <div>
-    <label htmlFor={id} className="form-label">
+    <label htmlFor={id} className="block text-sm font-medium text-ink-700 mb-1.5">
       {label}
-      {hint && <span className="text-xs text-surface-400 font-normal ml-1.5">{hint}</span>}
+      {hint && <span className="text-xs text-ink-400 font-normal ml-1.5">{hint}</span>}
     </label>
     {children}
-    {error && <p className="text-red-500 text-xs mt-1.5 flex items-center gap-1">⚠ {error}</p>}
+    {error && <p className="text-red-600 text-xs mt-1.5">⚠ {error}</p>}
   </div>
 );
+
+const inputCls = (err) =>
+  `w-full pl-10 pr-3 py-2.5 text-sm bg-white border rounded-md text-ink-800 placeholder-ink-300 focus:outline-none transition-colors ${
+    err
+      ? 'border-red-400 focus:border-red-500'
+      : 'border-ink-200 focus:border-maroon-500'
+  }`;
 
 const RegisterPage = () => {
   const { register } = useAuth();
   const navigate = useNavigate();
 
-  const [form, setForm] = useState({ name:'', email:'', password:'', confirmPassword:'', department:'', role:'' });
-  const [errors, setErrors]     = useState({});
-  const [showPwd, setShowPwd]   = useState(false);
+  const [form, setForm] = useState({
+    fullName: '', email: '', password: '', confirmPassword: '',
+    role: 'STUDENT',
+    schoolId: '', departmentId: '',
+    companyName: '', website: '',
+  });
+  const [errors, setErrors]       = useState({});
+  const [showPwd, setShowPwd]     = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [globalError, setGlobalError] = useState('');
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setForm((p) => ({ ...p, [name]: value }));
-    if (errors[name]) setErrors((p) => ({ ...p, [name]: '' }));
+  const [schools, setSchools]         = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [loadingSchools, setLoadingSchools]   = useState(false);
+  const [loadingDepts, setLoadingDepts]       = useState(false);
+
+  useEffect(() => {
+    setLoadingSchools(true);
+    referenceAPI.getSchools()
+      .then((res) => setSchools(res.data || []))
+      .catch(() => {})
+      .finally(() => setLoadingSchools(false));
+  }, []);
+
+  useEffect(() => {
+    if (form.role !== 'STUDENT' || !form.schoolId) {
+      setDepartments([]);
+      return;
+    }
+    setLoadingDepts(true);
+    referenceAPI.getDepartments(form.schoolId)
+      .then((res) => setDepartments(res.data || []))
+      .catch(() => {})
+      .finally(() => setLoadingDepts(false));
+  }, [form.schoolId, form.role]);
+
+  const set = (field) => (e) => {
+    const val = e.target ? e.target.value : e;
+    setForm((p) => ({ ...p, [field]: val }));
+    if (errors[field]) setErrors((p) => ({ ...p, [field]: '' }));
+    if (field === 'schoolId') setForm((p) => ({ ...p, schoolId: val, departmentId: '' }));
   };
 
   const validate = () => {
     const errs = {};
-    if (!form.name.trim() || form.name.trim().length < 2) errs.name = 'Full name (min 2 chars) is required.';
-    if (!form.email.trim()) { errs.email = 'Email is required.'; }
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) { errs.email = 'Invalid email.'; }
-    else if (form.role === 'Student' && !form.email.endsWith(`@${UNIVERSITY_DOMAIN}`)) {
+    if (!form.fullName.trim() || form.fullName.trim().length < 2)
+      errs.fullName = 'Full name (min 2 chars) is required.';
+
+    if (!form.email.trim()) {
+      errs.email = 'Email is required.';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+      errs.email = 'Invalid email address.';
+    } else if (form.role === 'STUDENT' && !form.email.trim().toLowerCase().endsWith(`@${UNIVERSITY_DOMAIN}`)) {
       errs.email = `Students must use their university email (@${UNIVERSITY_DOMAIN}).`;
     }
-    if (!form.password) { errs.password = 'Password is required.'; }
-    else if (form.password.length < 8) { errs.password = 'Min 8 characters.'; }
-    else if (!/[A-Z]/.test(form.password)) { errs.password = 'Need at least one uppercase letter.'; }
-    else if (!/[0-9]/.test(form.password)) { errs.password = 'Need at least one number.'; }
-    else if (!/[^A-Za-z0-9]/.test(form.password)) { errs.password = 'Need at least one special character.'; }
-    if (form.password !== form.confirmPassword) errs.confirmPassword = 'Passwords do not match.';
-    if (!form.department) errs.department = 'Department is required.';
-    if (!form.role) errs.role = 'Please select a role.';
+
+    if (!form.password) {
+      errs.password = 'Password is required.';
+    } else if (form.password.length < 6) {
+      errs.password = 'Password must be at least 6 characters.';
+    }
+
+    if (form.password !== form.confirmPassword)
+      errs.confirmPassword = 'Passwords do not match.';
+
+    if (form.role === 'STUDENT') {
+      if (!form.schoolId) errs.schoolId = 'Please select a school.';
+      if (!form.departmentId) errs.departmentId = 'Please select a department.';
+    }
+
+    if (form.role === 'COMPANY') {
+      if (!form.companyName.trim()) errs.companyName = 'Company name is required.';
+    }
+
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setGlobalError('');
     if (!validate()) return;
     setSubmitting(true);
     try {
-      await register({ name: form.name.trim(), email: form.email.trim().toLowerCase(), password: form.password, department: form.department, role: form.role });
-      toast.success('Registration successful! Please check your email to verify your account.');
-      navigate('/login', { state: { message: 'Registration successful! Check your email to verify your account.' } });
+      const payload = {
+        fullName: form.fullName.trim(),
+        email: form.email.trim().toLowerCase(),
+        password: form.password,
+        role: form.role,
+        ...(form.role === 'STUDENT' && { schoolId: form.schoolId, departmentId: form.departmentId }),
+        ...(form.role === 'COMPANY' && { companyName: form.companyName.trim(), website: form.website.trim() }),
+      };
+      await register(payload);
+
+      if (form.role === 'STUDENT') {
+        toast.success('Account created! Check your email to verify.');
+        navigate('/login', { state: { message: 'Registration successful! Check your email to verify your account.' } });
+      } else {
+        toast.success('Application submitted! Wait for admin approval.');
+        navigate('/login', { state: { message: 'Application submitted. You will be notified once approved.' } });
+      }
     } catch (err) {
       if (err?.data?.errors) {
         const fieldErrors = {};
         err.data.errors.forEach((e) => { if (e.field) fieldErrors[e.field] = e.message; });
         setErrors((p) => ({ ...p, ...fieldErrors }));
-        toast.error(err?.data?.message || 'Registration failed. Please check the form.');
-        return;
       }
-      toast.success('Registration submitted! Please wait for admin approval.');
-      navigate('/login', { state: { message: 'Registration submitted! Please wait for admin approval.' } });
+      setGlobalError(err?.data?.message || err?.message || 'Registration failed. Please try again.');
     } finally {
       setSubmitting(false);
     }
   };
 
+  const isStudent = form.role === 'STUDENT';
+  const isCompany = form.role === 'COMPANY';
+
   return (
-    <div className="min-h-screen flex">
-      {/* Left branding */}
-      <div className="hidden lg:flex lg:w-2/5 bg-auth-gradient bg-hero-pattern flex-col justify-between p-12">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center">
-            <span className="text-white font-black text-lg">P</span>
-          </div>
-          <span className="text-white font-bold text-lg">PMS · UoH</span>
-        </div>
+    <div className="min-h-screen flex bg-cream-100">
 
-        {/* UoH Logo Image */}
-        <div className="flex justify-center items-center">
-          <img
-            src={uohLogo}
-            alt="University of Hyderabad"
-            className="max-w-xs h-auto object-contain filter brightness-110 drop-shadow-lg"
-          />
-        </div>
+      {/* ── Left panel — maroon branding ── */}
+      <div className="hidden lg:flex lg:w-2/5 bg-maroon-deep flex-col justify-between p-12 xl:p-16 relative overflow-hidden">
+        <div className="absolute bottom-0 left-0 w-80 h-80 bg-gold-500/10 rounded-full blur-3xl translate-y-1/2 -translate-x-1/3 pointer-events-none" />
 
-        <div>
-          <h2 className="text-white text-3xl font-extrabold mb-3">Join the platform</h2>
-          <p className="text-white/70 text-sm leading-relaxed">
-            Register as a student, faculty member, or company recruiter to access the University of Hyderabad Placement Portal.
+        <Logo variant="full" size="md" theme="light" />
+
+        <div className="relative">
+          <div className="w-12 h-1 bg-gold-400 mb-6 rounded-full" />
+          <h2 className="font-display text-4xl xl:text-5xl font-semibold text-white leading-[1.1]">
+            Start your<br />
+            <span className="text-gold-300 italic">placement journey</span><br />
+            here.
+          </h2>
+          <p className="mt-6 text-base text-white/70 leading-relaxed max-w-xs">
+            Students and companies register through this portal to participate in
+            the University of Hyderabad's official placement programme.
           </p>
         </div>
-        <p className="text-white/40 text-xs">© 2026 University of Hyderabad</p>
+
+        <div className="relative">
+          <p className="font-display text-lg text-white/80 italic">ज्ञानं परमं बलम्</p>
+          <p className="text-xs text-white/40 mt-1">&ldquo;Knowledge is the supreme strength.&rdquo;</p>
+          <p className="mt-6 text-xs text-white/30">© 2026 University of Hyderabad</p>
+        </div>
       </div>
 
-      {/* Right form */}
-      <div className="flex-1 overflow-y-auto flex flex-col justify-center px-6 py-10 sm:px-12 lg:px-14 bg-surface-50">
+      {/* ── Right panel — form ── */}
+      <div className="flex-1 overflow-y-auto flex flex-col justify-center px-6 py-10 sm:px-12 lg:px-14 bg-cream-100">
         <div className="w-full max-w-lg mx-auto">
-          <div className="lg:hidden flex items-center gap-3 mb-7">
-            <div className="w-9 h-9 bg-primary-500 rounded-xl flex items-center justify-center">
-              <span className="text-white font-black text-lg">P</span>
-            </div>
-            <span className="text-primary-600 font-bold text-lg">PMS · UoH</span>
+
+          {/* Mobile logo */}
+          <div className="lg:hidden mb-8">
+            <Logo variant="full" size="sm" />
           </div>
 
           <div className="mb-7">
-            <h1 className="text-2xl font-bold text-surface-900">Create your account</h1>
-            <p className="mt-1.5 text-sm text-surface-500">
+            <h1 className="font-display text-3xl font-semibold text-ink-800">Create your account</h1>
+            <p className="mt-1.5 text-sm text-ink-500">
               Already registered?{' '}
-              <Link to="/login" className="text-primary-600 font-semibold hover:underline">Sign in</Link>
+              <Link to="/login" className="text-maroon-600 font-semibold hover:text-maroon-500 underline-offset-4 hover:underline">
+                Sign in
+              </Link>
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-            {/* Role selector (first so email hint updates) */}
-            <Field id="role" label="I am registering as" error={errors.role}>
-              <div className="grid grid-cols-3 gap-2 mt-0.5">
+          {globalError && <Alert variant="danger" className="mb-6">{globalError}</Alert>}
+
+          <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+
+            {/* Role selector */}
+            <div>
+              <p className="block text-sm font-medium text-ink-700 mb-2">I am registering as</p>
+              <div className="grid grid-cols-2 gap-2">
                 {ROLES.map((r) => (
-                  <button key={r.value} type="button"
-                    onClick={() => { setForm((p) => ({ ...p, role: r.value })); if (errors.role) setErrors((p) => ({ ...p, role: '' })); }}
-                    className={`py-2.5 rounded-xl border text-sm font-medium transition-all duration-150
-                      ${form.role === r.value
-                        ? 'bg-primary-500 text-white border-primary-500 shadow-glow'
-                        : 'bg-white text-surface-600 border-surface-200 hover:border-primary-300 hover:text-primary-600'
-                      }`}
+                  <button
+                    key={r.value} type="button"
+                    onClick={() => setForm((p) => ({ ...p, role: r.value, schoolId: '', departmentId: '' }))}
+                    className={`py-2.5 rounded-md border text-sm font-medium transition-all duration-150 ${
+                      form.role === r.value
+                        ? 'bg-maroon-700 text-white border-maroon-700 shadow-sm'
+                        : 'bg-white text-ink-600 border-ink-200 hover:border-maroon-400 hover:text-maroon-600'
+                    }`}
                   >
                     {r.label}
                   </button>
                 ))}
               </div>
-              {errors.role && <p className="text-red-500 text-xs mt-1.5">⚠ {errors.role}</p>}
-            </Field>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Name */}
-              <Field id="name" label="Full Name" error={errors.name}>
-                <div className="relative">
-                  <HiOutlineUser className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-400" />
-                  <input id="name" name="name" type="text" value={form.name} onChange={handleChange}
-                    className={`input-field pl-10 ${errors.name ? 'input-error' : ''}`}
-                    placeholder="John Doe" />
-                </div>
-              </Field>
-
-              {/* Department */}
-              <Field id="department" label="Department" error={errors.department}>
-                <div className="relative">
-                  <HiOutlineOfficeBuilding className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-400" />
-                  <select id="department" name="department" value={form.department} onChange={handleChange}
-                    className={`input-field pl-10 ${errors.department ? 'input-error' : ''}`}>
-                    <option value="">Select dept.</option>
-                    {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
-                  </select>
-                </div>
-              </Field>
             </div>
 
-            {/* Email */}
-            <Field id="email" label="Email Address"
-              hint={form.role === 'Student' ? `(@${UNIVERSITY_DOMAIN} required)` : undefined}
-              error={errors.email}>
+            {/* Full Name */}
+            <Field id="fullName" label="Full Name" error={errors.fullName}>
               <div className="relative">
-                <HiOutlineMail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-400" />
-                <input id="email" name="email" type="email" value={form.email} onChange={handleChange}
-                  className={`input-field pl-10 ${errors.email ? 'input-error' : ''}`}
-                  placeholder={form.role === 'Student' ? `yourname@${UNIVERSITY_DOMAIN}` : 'you@example.com'} />
+                <HiOutlineUser className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400 pointer-events-none" />
+                <input
+                  id="fullName" name="fullName" type="text" autoComplete="name"
+                  value={form.fullName} onChange={set('fullName')}
+                  placeholder="Your full name"
+                  className={inputCls(errors.fullName)}
+                />
               </div>
             </Field>
 
+            {/* Email */}
+            <Field
+              id="email" label="Email Address"
+              hint={isStudent ? `(@${UNIVERSITY_DOMAIN} required)` : undefined}
+              error={errors.email}
+            >
+              <div className="relative">
+                <HiOutlineMail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400 pointer-events-none" />
+                <input
+                  id="email" name="email" type="email" autoComplete="email"
+                  value={form.email} onChange={set('email')}
+                  placeholder={isStudent ? `yourname@${UNIVERSITY_DOMAIN}` : 'recruiter@company.com'}
+                  className={inputCls(errors.email)}
+                />
+              </div>
+            </Field>
+
+            {/* Student: school + department */}
+            {isStudent && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field id="schoolId" label="School" error={errors.schoolId}>
+                  <div className="relative">
+                    <HiOutlineOfficeBuilding className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400 pointer-events-none" />
+                    <select
+                      id="schoolId" value={form.schoolId}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setForm((p) => ({ ...p, schoolId: val, departmentId: '' }));
+                        if (errors.schoolId) setErrors((p) => ({ ...p, schoolId: '' }));
+                      }}
+                      className={`${inputCls(errors.schoolId)} appearance-none`}
+                      disabled={loadingSchools}
+                    >
+                      <option value="">{loadingSchools ? 'Loading…' : 'Select school'}</option>
+                      {schools.map((s) => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </Field>
+
+                <Field id="departmentId" label="Department" error={errors.departmentId}>
+                  <div className="relative">
+                    <HiOutlineOfficeBuilding className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400 pointer-events-none" />
+                    <select
+                      id="departmentId" value={form.departmentId}
+                      onChange={set('departmentId')}
+                      className={`${inputCls(errors.departmentId)} appearance-none`}
+                      disabled={!form.schoolId || loadingDepts}
+                    >
+                      <option value="">{loadingDepts ? 'Loading…' : 'Select dept.'}</option>
+                      {departments.map((d) => (
+                        <option key={d.id} value={d.id}>{d.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </Field>
+              </div>
+            )}
+
+            {/* Company: company name + website */}
+            {isCompany && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field id="companyName" label="Company Name" error={errors.companyName}>
+                  <div className="relative">
+                    <HiOutlineOfficeBuilding className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400 pointer-events-none" />
+                    <input
+                      id="companyName" type="text"
+                      value={form.companyName} onChange={set('companyName')}
+                      placeholder="Acme Corp"
+                      className={inputCls(errors.companyName)}
+                    />
+                  </div>
+                </Field>
+
+                <Field id="website" label="Website" error={errors.website} hint="(optional)">
+                  <div className="relative">
+                    <HiOutlineGlobe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400 pointer-events-none" />
+                    <input
+                      id="website" type="url"
+                      value={form.website} onChange={set('website')}
+                      placeholder="https://acmecorp.com"
+                      className={inputCls(errors.website)}
+                    />
+                  </div>
+                </Field>
+              </div>
+            )}
+
+            {/* Password + Confirm */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Password */}
-              <Field id="password" label="Password" error={errors.password}>
+              <Field id="password" label="Password" error={errors.password}
+                hint="min 6 characters">
                 <div className="relative">
-                  <HiOutlineLockClosed className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-400" />
-                  <input id="password" name="password" type={showPwd ? 'text' : 'password'}
-                    value={form.password} onChange={handleChange}
-                    className={`input-field pl-10 pr-10 ${errors.password ? 'input-error' : ''}`}
-                    placeholder="Min 8 chars" />
-                  <button type="button" onClick={() => setShowPwd((s) => !s)}
-                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-surface-400 hover:text-surface-700">
-                    {showPwd ? <HiEyeOff className="w-4 h-4" /> : <HiEye className="w-4 h-4" />}
+                  <HiOutlineLockClosed className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400 pointer-events-none" />
+                  <input
+                    id="password" type={showPwd ? 'text' : 'password'} autoComplete="new-password"
+                    value={form.password} onChange={set('password')}
+                    placeholder="Min 8 characters"
+                    className={`${inputCls(errors.password)} pr-10`}
+                  />
+                  <button
+                    type="button" onClick={() => setShowPwd((s) => !s)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-700"
+                    aria-label={showPwd ? 'Hide password' : 'Show password'}
+                  >
+                    {showPwd ? <HiOutlineEyeOff className="w-4 h-4" /> : <HiOutlineEye className="w-4 h-4" />}
                   </button>
                 </div>
               </Field>
 
-              {/* Confirm Password */}
               <Field id="confirmPassword" label="Confirm Password" error={errors.confirmPassword}>
                 <div className="relative">
-                  <HiOutlineLockClosed className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-400" />
-                  <input id="confirmPassword" name="confirmPassword" type="password"
-                    value={form.confirmPassword} onChange={handleChange}
-                    className={`input-field pl-10 ${errors.confirmPassword ? 'input-error' : ''}`}
-                    placeholder="Re-enter password" />
+                  <HiOutlineLockClosed className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400 pointer-events-none" />
+                  <input
+                    id="confirmPassword" type="password" autoComplete="new-password"
+                    value={form.confirmPassword} onChange={set('confirmPassword')}
+                    placeholder="Re-enter password"
+                    className={inputCls(errors.confirmPassword)}
+                  />
                 </div>
               </Field>
             </div>
 
-            <button type="submit" disabled={submitting} className="btn-primary w-full py-3 text-base mt-2">
-              {submitting ? (
-                <span className="flex items-center justify-center gap-2">
-                  <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
-                  </svg>
-                  Creating account…
-                </span>
-              ) : 'Create Account'}
-            </button>
+            <Button
+              type="submit" variant="primary" size="lg" fullWidth loading={submitting}
+              className="mt-2"
+            >
+              {isCompany ? 'Submit Application' : 'Create Account'}
+            </Button>
+
+            {isCompany && (
+              <p className="text-xs text-ink-400 text-center">
+                Company accounts require admin approval before you can sign in.
+              </p>
+            )}
           </form>
         </div>
       </div>

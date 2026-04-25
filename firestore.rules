@@ -1,0 +1,35 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Deny by default — the backend API (Admin SDK) bypasses these rules.
+    // Client-side SDK access is restricted to what's explicitly allowed below.
+
+    match /users/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if false;
+    }
+
+    match /studentProfiles/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if false;
+    }
+
+    match /schools/{schoolId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    match /departments/{deptId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    // All other collections: deny client access entirely.
+    // Admin SDK (server-side) always bypasses these rules.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

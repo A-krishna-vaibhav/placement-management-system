@@ -1,14 +1,11 @@
 /**
- * T-25 — Role Assignment Endpoint Tests
- * ──────────────────────────────────────
- * Covers: admin can assign roles, non-admin gets 403.
- *
- * Since admin routes require authenticate + authorize('Admin'),
- * we test both middleware layers.
+ * Admin User Management Endpoint Tests
+ * ─────────────────────────────────────
+ * Covers: list users, role updates, status updates, RBAC enforcement.
  */
 
 const request = require('supertest');
-const { clearMockData, setMockFirestoreDoc, mockAuth } = require('./mocks/firebase');
+const { clearMockData, setMockFirestoreDoc } = require('./mocks/firebase');
 
 jest.mock('../src/config/firebase', () => require('./mocks/firebase'));
 
@@ -18,41 +15,32 @@ describe('Admin User Management', () => {
   beforeEach(() => {
     clearMockData();
 
-    // Create admin user in Firestore
     setMockFirestoreDoc('users', 'admin-uid', {
-      uid: 'admin-uid',
-      name: 'Admin',
-      email: 'admin-uid@uohyd.ac.in',
-      role: 'Admin',
-      department: 'TPO',
-      status: 'Active',
-      isVerified: true,
+      uid:       'admin-uid',
+      fullName:  'System Admin',
+      email:     'admin-uid@uohyd.ac.in',
+      role:      'ADMIN',
+      status:    'ACTIVE',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
 
-    // Create a regular student
     setMockFirestoreDoc('users', 'student-uid', {
-      uid: 'student-uid',
-      name: 'Student',
-      email: 'student-uid@uohyd.ac.in',
-      role: 'Student',
-      department: 'CS',
-      status: 'Inactive',
-      isVerified: true,
+      uid:       'student-uid',
+      fullName:  'Student User',
+      email:     'student-uid@uohyd.ac.in',
+      role:      'STUDENT',
+      status:    'ACTIVE',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
 
-    // Create a target user to be updated
     setMockFirestoreDoc('users', 'target-user', {
-      uid: 'target-user',
-      name: 'Target User',
-      email: 'target-user@uohyd.ac.in',
-      role: 'Student',
-      department: 'CS',
-      status: 'Inactive',
-      isVerified: false,
+      uid:       'target-user',
+      fullName:  'Target User',
+      email:     'target-user@uohyd.ac.in',
+      role:      'STUDENT',
+      status:    'UNVERIFIED',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -61,7 +49,7 @@ describe('Admin User Management', () => {
   // ── GET /api/admin/users ──
 
   describe('GET /api/admin/users', () => {
-    test('admin should retrieve user list', async () => {
+    test('ADMIN should retrieve user list', async () => {
       const res = await request(app)
         .get('/api/admin/users')
         .set('Authorization', 'Bearer valid-token-admin-uid')
@@ -72,14 +60,14 @@ describe('Admin User Management', () => {
       expect(Array.isArray(res.body.data.users)).toBe(true);
     });
 
-    test('non-admin should be rejected with 403', async () => {
+    test('non-ADMIN should be rejected with 403', async () => {
       const res = await request(app)
         .get('/api/admin/users')
         .set('Authorization', 'Bearer valid-token-student-uid')
         .expect(403);
 
       expect(res.body.success).toBe(false);
-      expect(res.body.message).toContain('Access denied');
+      expect(res.body.message).toContain('Insufficient permission');
     });
 
     test('unauthenticated request should be rejected with 401', async () => {
@@ -94,18 +82,29 @@ describe('Admin User Management', () => {
   // ── PATCH /api/admin/users/:id/role ──
 
   describe('PATCH /api/admin/users/:id/role', () => {
-    test('admin should update a user role', async () => {
+    test('ADMIN should update a user role to FACULTY', async () => {
       const res = await request(app)
         .patch('/api/admin/users/target-user/role')
         .set('Authorization', 'Bearer valid-token-admin-uid')
-        .send({ role: 'Faculty' })
+        .send({ role: 'FACULTY' })
         .expect(200);
 
       expect(res.body.success).toBe(true);
-      expect(res.body.data.role).toBe('Faculty');
+      expect(res.body.data.role).toBe('FACULTY');
     });
 
-    test('admin should reject invalid role value', async () => {
+    test('ADMIN should update a user role to COMPANY', async () => {
+      const res = await request(app)
+        .patch('/api/admin/users/target-user/role')
+        .set('Authorization', 'Bearer valid-token-admin-uid')
+        .send({ role: 'COMPANY' })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.role).toBe('COMPANY');
+    });
+
+    test('ADMIN should reject an invalid role value', async () => {
       const res = await request(app)
         .patch('/api/admin/users/target-user/role')
         .set('Authorization', 'Bearer valid-token-admin-uid')
@@ -115,11 +114,11 @@ describe('Admin User Management', () => {
       expect(res.body.success).toBe(false);
     });
 
-    test('non-admin should not update roles', async () => {
+    test('non-ADMIN should not update roles', async () => {
       const res = await request(app)
         .patch('/api/admin/users/target-user/role')
         .set('Authorization', 'Bearer valid-token-student-uid')
-        .send({ role: 'Admin' })
+        .send({ role: 'ADMIN' })
         .expect(403);
 
       expect(res.body.success).toBe(false);
@@ -129,39 +128,50 @@ describe('Admin User Management', () => {
   // ── PATCH /api/admin/users/:id/status ──
 
   describe('PATCH /api/admin/users/:id/status', () => {
-    test('admin should activate a user account', async () => {
+    test('ADMIN should set user status to ACTIVE', async () => {
       const res = await request(app)
         .patch('/api/admin/users/target-user/status')
         .set('Authorization', 'Bearer valid-token-admin-uid')
-        .send({ status: 'Active' })
+        .send({ status: 'ACTIVE' })
         .expect(200);
 
       expect(res.body.success).toBe(true);
-      expect(res.body.data.status).toBe('Active');
+      expect(res.body.data.status).toBe('ACTIVE');
     });
 
-    test('admin should deactivate a user account', async () => {
+    test('ADMIN should set user status to DEACTIVATED', async () => {
       const res = await request(app)
         .patch('/api/admin/users/target-user/status')
         .set('Authorization', 'Bearer valid-token-admin-uid')
-        .send({ status: 'Deactivated' })
+        .send({ status: 'DEACTIVATED' })
         .expect(200);
 
       expect(res.body.success).toBe(true);
-      expect(res.body.data.status).toBe('Deactivated');
+      expect(res.body.data.status).toBe('DEACTIVATED');
     });
 
-    test('non-admin should not update status', async () => {
+    test('ADMIN should set user status to SUSPENDED', async () => {
+      const res = await request(app)
+        .patch('/api/admin/users/target-user/status')
+        .set('Authorization', 'Bearer valid-token-admin-uid')
+        .send({ status: 'SUSPENDED' })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.status).toBe('SUSPENDED');
+    });
+
+    test('non-ADMIN should not update status', async () => {
       const res = await request(app)
         .patch('/api/admin/users/target-user/status')
         .set('Authorization', 'Bearer valid-token-student-uid')
-        .send({ status: 'Active' })
+        .send({ status: 'ACTIVE' })
         .expect(403);
 
       expect(res.body.success).toBe(false);
     });
 
-    test('admin should reject invalid status value', async () => {
+    test('ADMIN should reject an invalid status value', async () => {
       const res = await request(app)
         .patch('/api/admin/users/target-user/status')
         .set('Authorization', 'Bearer valid-token-admin-uid')

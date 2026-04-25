@@ -1,58 +1,52 @@
 /**
  * Seed Admin User
  * ───────────────
- * Creates the initial Admin account in Firebase Auth + Firestore.
- * Run once:  node src/scripts/seedAdmin.js
+ * Creates or updates the initial Admin account in Firebase Auth + Firestore.
+ * Reads credentials from environment variables.
+ * Run: node src/scripts/seedAdmin.js
  */
 
 const { auth, db } = require('../config/firebase');
 const { ROLES, ACCOUNT_STATUS, COLLECTIONS } = require('../config/constants');
 
-const ADMIN_EMAIL = 'admin@uohyd.ac.in';
-const ADMIN_PASSWORD = 'Admin@123456';
-const ADMIN_NAME = 'PMS Administrator';
-const ADMIN_DEPARTMENT = 'Training & Placement Office';
+const email    = process.env.SEED_ADMIN_EMAIL    || 'admin@uohyd.ac.in';
+const password = process.env.SEED_ADMIN_PASSWORD || 'Admin@Uoh2026';
+const name     = process.env.SEED_ADMIN_NAME     || 'System Administrator';
 
 async function seedAdmin() {
   try {
     console.log('🌱  Seeding admin user...');
 
-    // Check if admin already exists
+    let userRecord;
     try {
-      const existing = await auth.getUserByEmail(ADMIN_EMAIL);
-      console.log(`⚠️  Admin user already exists: ${existing.uid}`);
-      return;
+      userRecord = await auth.getUserByEmail(email);
+      console.log(`⚠️  Admin already exists: ${userRecord.uid}`);
     } catch (err) {
       if (err.code !== 'auth/user-not-found') throw err;
+      userRecord = await auth.createUser({
+        email,
+        password,
+        displayName: name,
+        emailVerified: true,
+      });
+      console.log(`✅  Admin created: ${userRecord.uid}`);
     }
 
-    // Create in Firebase Auth
-    const userRecord = await auth.createUser({
-      email: ADMIN_EMAIL,
-      password: ADMIN_PASSWORD,
-      displayName: ADMIN_NAME,
-      emailVerified: true,
-    });
-
-    // Set custom claims
     await auth.setCustomUserClaims(userRecord.uid, { role: ROLES.ADMIN });
 
-    // Create Firestore profile
+    const now = new Date().toISOString();
     await db.collection(COLLECTIONS.USERS).doc(userRecord.uid).set({
-      uid: userRecord.uid,
-      name: ADMIN_NAME,
-      email: ADMIN_EMAIL,
-      role: ROLES.ADMIN,
-      department: ADMIN_DEPARTMENT,
-      status: ACCOUNT_STATUS.ACTIVE,
-      isVerified: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
+      uid:         userRecord.uid,
+      email,
+      fullName:    name,
+      role:        ROLES.ADMIN,
+      status:      ACCOUNT_STATUS.ACTIVE,
+      createdAt:   now,
+      updatedAt:   now,
+      lastLoginAt: null,
+    }, { merge: true });
 
-    console.log(`✅  Admin user created: ${userRecord.uid}`);
-    console.log(`    Email: ${ADMIN_EMAIL}`);
-    console.log(`    Password: ${ADMIN_PASSWORD}`);
+    console.log(`    Email: ${email}`);
     console.log('    ⚠️  Change the password after first login!\n');
     process.exit(0);
   } catch (error) {

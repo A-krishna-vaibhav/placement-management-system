@@ -5,81 +5,66 @@
  */
 
 const { body, query, param } = require('express-validator');
-const { ROLES, UNIVERSITY_ROLES, UNIVERSITY_EMAIL_DOMAIN } = require('../config/constants');
-
-/**
- * Helper: returns true if the role requires a university email domain.
- */
-const requiresUniversityEmail = (role) => UNIVERSITY_ROLES.includes(role);
+const {
+  ROLES,
+  SELF_REGISTRABLE_ROLES,
+  PASSWORD_POLICY,
+  UNIVERSITY_EMAIL_DOMAIN,
+  ACCOUNT_STATUS,
+} = require('../config/constants');
 
 /* ──────────────── Registration ──────────────── */
 
 const registerValidation = [
-  body('name')
-    .trim()
-    .notEmpty().withMessage('Name is required.')
-    .isLength({ min: 2, max: 100 }).withMessage('Name must be 2–100 characters.'),
+  body('fullName').trim().isLength({ min: 2, max: 100 }).withMessage('Name must be 2–100 chars.'),
 
   body('email')
-    .trim()
-    .notEmpty().withMessage('Email is required.')
-    .isEmail().withMessage('Must be a valid email address.')
-    .normalizeEmail(),
+    .isEmail().withMessage('Invalid email format.')
+    .normalizeEmail()
+    .custom((email, { req }) => {
+      // Student must use exactly @uohyd.ac.in (not subdomains)
+      if (req.body.role === ROLES.STUDENT) {
+        const domain = email.split('@')[1];
+        if (domain !== UNIVERSITY_EMAIL_DOMAIN) {
+          throw new Error(`Students must register with a @${UNIVERSITY_EMAIL_DOMAIN} email.`);
+        }
+      }
+      return true;
+    }),
 
   body('password')
-    .notEmpty().withMessage('Password is required.')
-    .isLength({ min: 8 }).withMessage('Password must be at least 8 characters.')
-    .matches(/[A-Z]/).withMessage('Password must contain at least one uppercase letter.')
-    .matches(/[0-9]/).withMessage('Password must contain at least one number.')
-    .matches(/[^A-Za-z0-9]/).withMessage('Password must contain at least one special character.'),
-
-  body('department')
-    .trim()
-    .notEmpty().withMessage('Department is required.'),
+    .matches(PASSWORD_POLICY.REGEX)
+    .withMessage(`Password must be ${PASSWORD_POLICY.DESCRIPTION}.`),
 
   body('role')
-    .trim()
-    .notEmpty().withMessage('Role is required.')
-    .isIn(Object.values(ROLES).filter(r => r !== ROLES.ADMIN))
-    .withMessage(`Role must be one of: ${Object.values(ROLES).filter(r => r !== ROLES.ADMIN).join(', ')}.`),
+    .isIn(SELF_REGISTRABLE_ROLES)
+    .withMessage('Only Students and Companies can self-register.'),
 
-  // Custom: university email enforcement
-  body('email').custom((email, { req }) => {
-    const role = req.body.role;
-    if (requiresUniversityEmail(role)) {
-      const domain = email.split('@')[1];
-      if (domain !== UNIVERSITY_EMAIL_DOMAIN) {
-        throw new Error(
-          `Students and staff must register with their university email (@${UNIVERSITY_EMAIL_DOMAIN}).`
-        );
-      }
-    }
-    return true;
-  }),
+  // Student-specific fields
+  body('schoolId').if(body('role').equals(ROLES.STUDENT))
+    .notEmpty().withMessage('School is required for students.'),
+
+  body('departmentId').if(body('role').equals(ROLES.STUDENT))
+    .notEmpty().withMessage('Department is required for students.'),
 ];
 
-/* ──────────────── Login (optional body validation) ──────────────── */
+/* ──────────────── Forgot Password ──────────────── */
 
-const loginValidation = [
-  body('email')
-    .trim()
-    .notEmpty().withMessage('Email is required.')
-    .isEmail().withMessage('Must be a valid email address.')
-    .normalizeEmail(),
+const forgotPasswordValidation = [
+  body('email').isEmail().withMessage('Invalid email format.').normalizeEmail(),
+];
 
-  body('password')
-    .notEmpty().withMessage('Password is required.'),
+/* ──────────────── OTP verification ──────────────── */
+
+const otpValidation = [
+  body('otp').isLength({ min: 6, max: 6 }).isNumeric().withMessage('OTP must be 6 digits.'),
 ];
 
 /* ──────────────── Admin: update role ──────────────── */
 
 const updateRoleValidation = [
-  param('id')
-    .notEmpty().withMessage('User ID is required.'),
-
+  param('id').notEmpty().withMessage('User ID is required.'),
   body('role')
-    .trim()
-    .notEmpty().withMessage('Role is required.')
     .isIn(Object.values(ROLES))
     .withMessage(`Role must be one of: ${Object.values(ROLES).join(', ')}.`),
 ];
@@ -87,14 +72,10 @@ const updateRoleValidation = [
 /* ──────────────── Admin: update status ──────────────── */
 
 const updateStatusValidation = [
-  param('id')
-    .notEmpty().withMessage('User ID is required.'),
-
+  param('id').notEmpty().withMessage('User ID is required.'),
   body('status')
-    .trim()
-    .notEmpty().withMessage('Status is required.')
-    .isIn(['Active', 'Inactive', 'Deactivated'])
-    .withMessage('Status must be one of: Active, Inactive, Deactivated.'),
+    .isIn(Object.values(ACCOUNT_STATUS))
+    .withMessage(`Status must be one of: ${Object.values(ACCOUNT_STATUS).join(', ')}.`),
 ];
 
 /* ──────────────── Admin: list users query ──────────────── */
@@ -104,28 +85,17 @@ const listUsersValidation = [
     .optional()
     .isIn(Object.values(ROLES))
     .withMessage(`Role filter must be one of: ${Object.values(ROLES).join(', ')}.`),
-
   query('status')
     .optional()
-    .isIn(['Active', 'Inactive', 'Deactivated'])
-    .withMessage('Status filter must be one of: Active, Inactive, Deactivated.'),
-];
-
-/* ──────────────── Forgot Password ──────────────── */
-
-const forgotPasswordValidation = [
-  body('email')
-    .trim()
-    .notEmpty().withMessage('Email is required.')
-    .isEmail().withMessage('Must be a valid email address.')
-    .normalizeEmail(),
+    .isIn(Object.values(ACCOUNT_STATUS))
+    .withMessage(`Status filter must be one of: ${Object.values(ACCOUNT_STATUS).join(', ')}.`),
 ];
 
 module.exports = {
   registerValidation,
-  loginValidation,
+  forgotPasswordValidation,
+  otpValidation,
   updateRoleValidation,
   updateStatusValidation,
   listUsersValidation,
-  forgotPasswordValidation,
 };

@@ -6,7 +6,7 @@
  */
 
 const { auth, db } = require('../config/firebase');
-const { COLLECTIONS } = require('../config/constants');
+const { COLLECTIONS, ACCOUNT_STATUS } = require('../config/constants');
 
 const authenticate = async (req, res, next) => {
   try {
@@ -22,7 +22,6 @@ const authenticate = async (req, res, next) => {
     const idToken = authHeader.split('Bearer ')[1];
     const decodedToken = await auth.verifyIdToken(idToken);
 
-    // Fetch user profile from Firestore
     const userDoc = await db.collection(COLLECTIONS.USERS).doc(decodedToken.uid).get();
 
     if (!userDoc.exists) {
@@ -34,30 +33,26 @@ const authenticate = async (req, res, next) => {
 
     const userData = userDoc.data();
 
-    // Check email verification
-    if (!decodedToken.email_verified) {
-      return res.status(403).json({
-        success: false,
-        message: 'Please verify your email before accessing this resource.',
-      });
+    // Block login for any non-ACTIVE state (SRS FR-1.19)
+    if (userData.status === ACCOUNT_STATUS.DEACTIVATED) {
+      return res.status(403).json({ success: false, message: 'Account deactivated.' });
     }
-
-    // Check account status
-    if (userData.status === 'Deactivated') {
-      return res.status(403).json({
-        success: false,
-        message: 'Your account has been deactivated. Contact the administrator.',
-      });
+    if (userData.status === ACCOUNT_STATUS.SUSPENDED) {
+      return res.status(403).json({ success: false, message: 'Account suspended.' });
+    }
+    if (userData.status === ACCOUNT_STATUS.PENDING_APPROVAL) {
+      return res.status(403).json({ success: false, message: 'Account pending approval.' });
+    }
+    if (userData.status === ACCOUNT_STATUS.UNVERIFIED) {
+      return res.status(403).json({ success: false, message: 'Email not verified.' });
     }
 
     req.user = {
-      uid: decodedToken.uid,
-      email: decodedToken.email,
-      emailVerified: decodedToken.email_verified,
-      role: userData.role,
-      status: userData.status,
-      name: userData.name,
-      department: userData.department,
+      uid:      decodedToken.uid,
+      email:    decodedToken.email,
+      role:     userData.role,
+      status:   userData.status,
+      fullName: userData.fullName,
     };
 
     next();
@@ -78,4 +73,17 @@ const authenticate = async (req, res, next) => {
   }
 };
 
-module.exports = { authenticate };
+const authorize = (...allowedRoles) => (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ success: false, message: 'Not authenticated.' });
+  }
+  if (!allowedRoles.includes(req.user.role)) {
+    return res.status(403).json({
+      success: false,
+      message: `Insufficient permission. Required: ${allowedRoles.join(', ')}. Your role: ${req.user.role}.`,
+    });
+  }
+  next();
+};
+
+module.exports = { authenticate, authorize };

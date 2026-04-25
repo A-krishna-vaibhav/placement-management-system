@@ -1,39 +1,80 @@
-/**
- * Login Page
- */
-
 import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
-import { HiOutlineEye, HiOutlineEyeOff, HiOutlineMail, HiOutlineLockClosed } from 'react-icons/hi';
+import {
+  HiOutlineEye, HiOutlineEyeOff,
+  HiOutlineMail, HiOutlineLockClosed,
+} from 'react-icons/hi';
 import { FcGoogle } from 'react-icons/fc';
-import BgImage from '../assets/Gemini_Generated_Image_lkoyazlkoyazlkoy.png';
+import { Button, Alert, Logo } from '../components/ui';
 
 const LoginPage = () => {
-  const { login, loginWithGoogle } = useAuth();
+  const { startLogin, loginWithGoogle, forgotPassword } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [email, setEmail]       = useState('');
-  const [password, setPassword] = useState('');
-  const [showPwd, setShowPwd]   = useState(false);
+  const [email, setEmail]           = useState('');
+  const [password, setPassword]     = useState('');
+  const [showPwd, setShowPwd]       = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError]           = useState('');
+  const [showResetHint, setShowResetHint] = useState(false);
+  const [resetSending, setResetSending]   = useState(false);
 
   const infoMessage = location.state?.message;
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    if (!email.trim() || !password) { toast.error('Please enter email and password.'); return; }
+    setError('');
+    setShowResetHint(false);
+    if (!email.trim() || !password) {
+      setError('Please enter both email and password.');
+      return;
+    }
     setSubmitting(true);
     try {
-      const response = await login(email.trim().toLowerCase(), password);
-      toast.success(`Welcome back, ${response.data.name}!`);
-      navigateToDashboard(response.data.role);
+      const response = await startLogin(email.trim().toLowerCase(), password);
+      if (response.data?.otpRequired === false) {
+        toast.success(`Welcome, ${response.data.fullName || 'back'}!`);
+        navigate('/dashboard', { replace: true });
+      } else {
+        toast.success('Code sent. Check your inbox.');
+        navigate('/verify-otp', { replace: true });
+      }
     } catch (err) {
-      toast.error(err?.message || 'Login failed.');
+      const code = err?.code || '';
+      if (code === 'auth/invalid-credential' || code === 'auth/wrong-password') {
+        setError('Incorrect password. If you signed up with Google and never set a password, use the button below to set one.');
+        setShowResetHint(true);
+      } else if (code === 'auth/user-not-found') {
+        setError('No account found with this email. Please register first.');
+      } else if (code === 'auth/too-many-requests') {
+        setError('Too many failed attempts. Please wait a few minutes or reset your password.');
+        setShowResetHint(true);
+      } else {
+        setError(err?.message || 'Sign-in failed. Please check your credentials.');
+      }
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleSendReset = async () => {
+    if (!email.trim()) {
+      toast.error('Enter your email address above first.');
+      return;
+    }
+    setResetSending(true);
+    try {
+      await forgotPassword(email.trim().toLowerCase());
+      toast.success('Reset link sent — check your inbox (and spam folder).');
+      setShowResetHint(false);
+      setError('');
+    } catch (err) {
+      toast.error(err?.message || 'Could not send reset email. Try the "Forgot password?" link.');
+    } finally {
+      setResetSending(false);
     }
   };
 
@@ -41,8 +82,8 @@ const LoginPage = () => {
     setSubmitting(true);
     try {
       const response = await loginWithGoogle();
-      toast.success(`Welcome, ${response.data.name}!`);
-      navigateToDashboard(response.data.role);
+      toast.success(`Welcome, ${response.data.fullName || response.data.name || 'back'}!`);
+      navigate('/dashboard', { replace: true });
     } catch (err) {
       toast.error(err?.message || 'Google sign-in failed.');
     } finally {
@@ -50,137 +91,148 @@ const LoginPage = () => {
     }
   };
 
-  const navigateToDashboard = (role) => {
-    const from = location.state?.from?.pathname;
-    if (from) return navigate(from, { replace: true });
-    navigate(role === 'Admin' ? '/admin/users' : '/dashboard', { replace: true });
-  };
-
   return (
-    <div className="min-h-screen flex">
-      {/* Left: white panel with UoH logo */}
-      <div className="hidden lg:flex lg:w-1/2 bg-white flex-col justify-center items-center p-8 relative overflow-hidden min-h-screen">
-        <div className="flex flex-col justify-center items-center w-full">
-          {/* Heading */}
-          <h2 className="text-gray-900 text-4xl font-serif font-extrabold text-center leading-tight mb-6">
-            Your career journey<br />starts here.
+    <div className="min-h-screen flex bg-cream-100">
+
+      {/* ── Left panel — branding ── */}
+      <div className="hidden lg:flex lg:w-3/5 bg-paper-texture flex-col justify-between p-12 xl:p-16">
+        <Logo variant="full" size="md" />
+
+        <div className="max-w-xl">
+          <div className="uoh-bar mb-6"></div>
+          <h2 className="font-display text-5xl xl:text-6xl font-semibold text-ink-800 leading-[1.05] text-balance">
+            The bridge between<br />
+            <span className="text-maroon-600 italic">your degree</span> and<br />
+            your first offer.
           </h2>
-
-          {/* Logo - Centered and Bigger */}
-          <img 
-            src={BgImage}
-            alt="University of Hyderabad Logo"
-            className="w-full max-w-sm h-auto object-contain drop-shadow-lg my-8"
-          />
-
-          {/* Description */}
-          <p className="text-gray-600 text-center text-sm leading-relaxed max-w-md mb-8">
-            University of Hyderabad's Placement Management System connects students,
-            faculty, and companies - all in one place.
+          <p className="mt-8 text-lg text-ink-500 max-w-md leading-relaxed">
+            The University of Hyderabad Placement Management System connects students,
+            faculty coordinators, the TPO, and recruiters in one institutional workflow.
           </p>
-          
-          {/* Statistics */}
-          <div className="flex gap-12 pt-4">
-            {[['Students', '2,400+'], ['Companies', '180+'], ['Offers', '940+']].map(([label, val]) => (
-              <div key={label} className="text-center">
-                <p className="text-gray-900 text-2xl font-bold">{val}</p>
-                <p className="text-gray-500 text-xs mt-1">{label}</p>
+        </div>
+
+        <div className="space-y-6">
+          <div className="grid grid-cols-3 gap-6 max-w-lg">
+            {[['Students', '5,000+'], ['Recruiters', '300+'], ['Schools', '12']].map(([label, val]) => (
+              <div key={label}>
+                <p className="font-display text-3xl font-semibold text-maroon-600">{val}</p>
+                <p className="text-xs uppercase tracking-wider text-ink-400 mt-1">{label}</p>
               </div>
             ))}
+          </div>
+          <div className="pt-4 border-t border-ink-100">
+            <p className="font-display text-lg text-ink-700 italic">सा विद्या या विमुक्तये</p>
+            <p className="text-xs text-ink-400 mt-1">&ldquo;That which liberates is knowledge.&rdquo;</p>
           </div>
         </div>
       </div>
 
-      {/* Right: form panel with blue gradient */}
-      <div className="flex-1 flex flex-col justify-center px-6 py-12 sm:px-12 lg:px-16 xl:px-24 bg-gradient-to-br from-blue-600 via-blue-700 to-blue-900">
-        <div className="w-full max-w-md mx-auto">
-          {/* Mobile brand */}
-          <div className="lg:hidden flex items-center gap-3 mb-8">
-            <div className="w-9 h-9 bg-white/30 rounded-xl flex items-center justify-center backdrop-blur-sm">
-              <span className="text-white font-black text-lg">P</span>
-            </div>
-            <span className="text-white font-bold text-lg tracking-tight">PMS · UoH</span>
+      {/* ── Right panel — form ── */}
+      <div className="flex-1 flex flex-col justify-center px-6 py-12 sm:px-12 lg:px-16 bg-maroon-deep relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-gold-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none" />
+
+        <div className="w-full max-w-md mx-auto relative">
+          <div className="lg:hidden mb-8">
+            <Logo variant="full" size="sm" theme="light" />
           </div>
 
           <div className="mb-8">
-            <h1 className="text-2xl font-bold text-white">Sign in to your account</h1>
+            <h1 className="font-display text-3xl font-semibold text-white">Sign in</h1>
             <p className="mt-1.5 text-sm text-white/70">
-              Don't have an account?{' '}
-              <Link to="/register" className="text-blue-100 font-semibold hover:underline">
-                Create one
+              Don&rsquo;t have an account?{' '}
+              <Link to="/register" className="text-gold-300 font-semibold hover:text-gold-200 underline-offset-4 hover:underline">
+                Register here
               </Link>
             </p>
           </div>
 
-          {/* Info banner */}
           {infoMessage && (
-            <div className="alert-success mb-6">
-              <span>{infoMessage}</span>
+            <div className="mb-6 flex items-start gap-3 px-4 py-3 rounded-md bg-white/10 border border-white/20 text-white text-sm">
+              {infoMessage}
+            </div>
+          )}
+
+          {error && (
+            <div className="mb-6 space-y-3">
+              <Alert variant="danger">{error}</Alert>
+              {showResetHint && (
+                <button
+                  type="button"
+                  onClick={handleSendReset}
+                  disabled={resetSending}
+                  className="w-full py-2 text-sm font-medium rounded-md bg-gold-500/20 border border-gold-400/40 text-gold-300 hover:bg-gold-500/30 transition-colors disabled:opacity-50"
+                >
+                  {resetSending ? 'Sending…' : 'Send me a password reset link'}
+                </button>
+              )}
             </div>
           )}
 
           <form onSubmit={handleLogin} className="space-y-5" noValidate>
-            {/* Email */}
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-white mb-1.5">Email address</label>
+              <label htmlFor="email" className="block text-sm font-medium text-white mb-1.5">
+                Email address
+              </label>
               <div className="relative">
-                <HiOutlineMail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/50" />
+                <HiOutlineMail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/50 pointer-events-none" />
                 <input
                   id="email" type="email" autoComplete="email"
                   value={email} onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-4 py-2.5 text-sm bg-white/20 border border-white/30 rounded-xl text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white focus:border-white transition-all duration-200"
-                  placeholder=""
+                  placeholder="you@uohyd.ac.in"
+                  className="w-full pl-10 pr-3 py-2.5 text-sm bg-white/10 border border-white/20 rounded-md text-white placeholder-white/40 focus:border-gold-400 focus:outline-none transition-colors"
                 />
               </div>
             </div>
 
-            {/* Password */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label htmlFor="password" className="block text-sm font-medium text-white">Password</label>
-                <Link to="/forgot-password" className="text-xs text-blue-100 font-medium hover:underline">
+                <Link to="/forgot-password" className="text-xs text-gold-300 font-medium hover:text-gold-200">
                   Forgot password?
                 </Link>
               </div>
               <div className="relative">
-                <HiOutlineLockClosed className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/50" />
+                <HiOutlineLockClosed className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/50 pointer-events-none" />
                 <input
                   id="password" type={showPwd ? 'text' : 'password'} autoComplete="current-password"
                   value={password} onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-2.5 text-sm bg-white/20 border border-white/30 rounded-xl text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white focus:border-white transition-all duration-200"
-                  placeholder="    ••••••••"
+                  placeholder="••••••••"
+                  className="w-full pl-10 pr-10 py-2.5 text-sm bg-white/10 border border-white/20 rounded-md text-white placeholder-white/40 focus:border-gold-400 focus:outline-none transition-colors"
                 />
-                <button type="button" onClick={() => setShowPwd((s) => !s)}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/50 hover:text-white">
+                <button
+                  type="button" onClick={() => setShowPwd((s) => !s)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/60 hover:text-white"
+                  aria-label={showPwd ? 'Hide password' : 'Show password'}
+                >
                   {showPwd ? <HiOutlineEyeOff className="w-4 h-4" /> : <HiOutlineEye className="w-4 h-4" />}
                 </button>
               </div>
             </div>
 
-            <button type="submit" disabled={submitting} className="inline-flex items-center justify-center gap-2 font-semibold rounded-xl transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] select-none bg-white text-blue-600 px-5 py-3 text-base w-full mt-1 hover:bg-blue-50 focus-visible:ring-white">
-              {submitting ? (
-                <span className="flex items-center justify-center gap-2">
-                  <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
-                  </svg>
-                  Signing in…
-                </span>
-              ) : 'Sign In'}
-            </button>
+            <Button
+              type="submit" variant="primary" size="lg" fullWidth loading={submitting}
+              className="!bg-white !text-maroon-700 hover:!bg-cream-100 mt-2"
+            >
+              Continue
+            </Button>
 
-            {/* Divider */}
-            <div className="relative flex items-center my-4">
-              <div className="flex-1 border-t border-white/20"></div>
-              <span className="mx-3 text-xs text-white/50 font-medium whitespace-nowrap">or continue with</span>
-              <div className="flex-1 border-t border-white/20"></div>
+            <div className="divider-uoh !text-white/40 before:!bg-white/20 after:!bg-white/20">
+              <span>or</span>
             </div>
 
-            <button type="button" onClick={handleGoogle} disabled={submitting} className="inline-flex items-center justify-center gap-2 font-semibold rounded-xl transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] select-none bg-white/20 text-white border border-white/30 px-5 py-2.5 text-sm w-full hover:bg-white/30 focus-visible:ring-white">
-              <FcGoogle className="w-5 h-5" />
-              Sign in with Google
-            </button>
+            <Button
+              type="button" variant="secondary" size="md" fullWidth
+              onClick={handleGoogle} disabled={submitting}
+              icon={<FcGoogle className="w-5 h-5" />}
+              className="!bg-white/10 !text-white !border-white/20 hover:!bg-white/20"
+            >
+              Continue with Google
+            </Button>
           </form>
+
+          <p className="mt-10 text-xs text-white/40 text-center">
+            © 2026 University of Hyderabad · Placement Guidance and Advisory Bureau
+          </p>
         </div>
       </div>
     </div>

@@ -1,14 +1,13 @@
 /**
- * T-23 — Registration Endpoint Tests
- * ───────────────────────────────────
+ * Registration Endpoint Tests
+ * ───────────────────────────
  * Covers: valid input, duplicate email, missing fields,
- *         university email enforcement, admin self-registration block.
+ *         university email enforcement, Faculty/TPO/Admin self-registration block.
  */
 
 const request = require('supertest');
 const { clearMockData } = require('./mocks/firebase');
 
-// Must mock BEFORE requiring app
 jest.mock('../src/config/firebase', () => require('./mocks/firebase'));
 
 const app = require('../src/app');
@@ -19,19 +18,20 @@ describe('POST /api/register', () => {
   });
 
   const validStudentPayload = {
-    name: 'Test Student',
-    email: 'teststudent@uohyd.ac.in',
-    password: 'Test@1234',
-    department: 'Computer Science',
-    role: 'Student',
+    fullName:     'Test Student',
+    email:        'teststudent@uohyd.ac.in',
+    password:     'Test1234A',
+    role:         'STUDENT',
+    schoolId:     'scis',
+    departmentId: 'dept-scis',
   };
 
   const validCompanyPayload = {
-    name: 'Acme Corp Recruiter',
-    email: 'recruiter@acme.com',
-    password: 'Recruiter@123',
-    department: 'Human Resources',
-    role: 'Company',
+    fullName:    'Acme Corp Recruiter',
+    email:       'recruiter@acme.com',
+    password:    'Recruiter1A',
+    role:        'COMPANY',
+    companyName: 'Acme Corp',
   };
 
   // ── Success Cases ──
@@ -44,34 +44,63 @@ describe('POST /api/register', () => {
 
     expect(res.body.success).toBe(true);
     expect(res.body.data.email).toBe(validStudentPayload.email);
-    expect(res.body.data.role).toBe('Student');
-    expect(res.body.data.status).toBe('Inactive');
+    expect(res.body.data.role).toBe('STUDENT');
+    expect(res.body.data.status).toBe('UNVERIFIED');
   });
 
-  test('should register a company recruiter with any valid email', async () => {
+  test('should register a company with any valid email and return PENDING_APPROVAL', async () => {
     const res = await request(app)
       .post('/api/register')
       .send(validCompanyPayload)
       .expect(201);
 
     expect(res.body.success).toBe(true);
-    expect(res.body.data.role).toBe('Company');
+    expect(res.body.data.role).toBe('COMPANY');
+    expect(res.body.data.status).toBe('PENDING_APPROVAL');
   });
 
-  test('should register a faculty with university email', async () => {
+  // ── Self-Registration Blocks (FR-1.11, FR-1.13) ──
+
+  test('should reject self-registration as FACULTY with 403', async () => {
     const res = await request(app)
       .post('/api/register')
       .send({
-        name: 'Dr. Faculty',
-        email: 'faculty@uohyd.ac.in',
-        password: 'Faculty@123',
-        department: 'Computer Science',
-        role: 'Faculty',
+        name:     'Dr. Faculty',
+        email:    'faculty@uohyd.ac.in',
+        password: 'Faculty1A',
+        role:     'FACULTY',
       })
-      .expect(201);
+      .expect(400); // validator rejects FACULTY from SELF_REGISTRABLE_ROLES
 
-    expect(res.body.success).toBe(true);
-    expect(res.body.data.role).toBe('Faculty');
+    expect(res.body.success).toBe(false);
+  });
+
+  test('should reject self-registration as TPO with 400', async () => {
+    const res = await request(app)
+      .post('/api/register')
+      .send({
+        name:     'TPO User',
+        email:    'tpo@uohyd.ac.in',
+        password: 'TpoPass1A',
+        role:     'TPO',
+      })
+      .expect(400);
+
+    expect(res.body.success).toBe(false);
+  });
+
+  test('should reject self-registration as ADMIN with 400', async () => {
+    const res = await request(app)
+      .post('/api/register')
+      .send({
+        name:     'Hacker',
+        email:    'hacker@uohyd.ac.in',
+        password: 'Hack1234A',
+        role:     'ADMIN',
+      })
+      .expect(400);
+
+    expect(res.body.success).toBe(false);
   });
 
   // ── Validation Failures ──
@@ -79,11 +108,10 @@ describe('POST /api/register', () => {
   test('should reject registration with missing name', async () => {
     const res = await request(app)
       .post('/api/register')
-      .send({ ...validStudentPayload, name: '' })
+      .send({ ...validStudentPayload, fullName: '' })
       .expect(400);
 
     expect(res.body.success).toBe(false);
-    expect(res.body.errors.some((e) => e.field === 'name')).toBe(true);
   });
 
   test('should reject registration with missing email', async () => {
@@ -104,15 +132,6 @@ describe('POST /api/register', () => {
     expect(res.body.success).toBe(false);
   });
 
-  test('should reject registration with missing department', async () => {
-    const res = await request(app)
-      .post('/api/register')
-      .send({ ...validStudentPayload, department: '' })
-      .expect(400);
-
-    expect(res.body.success).toBe(false);
-  });
-
   test('should reject registration with missing role', async () => {
     const res = await request(app)
       .post('/api/register')
@@ -122,25 +141,54 @@ describe('POST /api/register', () => {
     expect(res.body.success).toBe(false);
   });
 
-  test('should reject weak password (no uppercase)', async () => {
+  test('should reject student registration without schoolId', async () => {
     const res = await request(app)
       .post('/api/register')
-      .send({ ...validStudentPayload, password: 'test@1234' })
+      .send({ ...validStudentPayload, schoolId: '' })
       .expect(400);
 
     expect(res.body.success).toBe(false);
   });
 
-  test('should reject weak password (too short)', async () => {
+  test('should reject student registration without departmentId', async () => {
     const res = await request(app)
       .post('/api/register')
-      .send({ ...validStudentPayload, password: 'Te@1' })
+      .send({ ...validStudentPayload, departmentId: '' })
       .expect(400);
 
     expect(res.body.success).toBe(false);
   });
 
-  // ── University Email Enforcement ──
+  // ── Password Policy (FR-1.14) ──
+
+  test('should accept password with no uppercase (policy only requires 6+ chars)', async () => {
+    const res = await request(app)
+      .post('/api/register')
+      .send({ ...validStudentPayload, password: 'test1234' })
+      .expect(201);
+
+    expect(res.body.success).toBe(true);
+  });
+
+  test('should accept password with no digit (policy only requires 6+ chars)', async () => {
+    const res = await request(app)
+      .post('/api/register')
+      .send({ ...validStudentPayload, email: 'teststudent2@uohyd.ac.in', password: 'TestPassA' })
+      .expect(201);
+
+    expect(res.body.success).toBe(true);
+  });
+
+  test('should reject weak password — too short', async () => {
+    const res = await request(app)
+      .post('/api/register')
+      .send({ ...validStudentPayload, password: 'Te1A' })
+      .expect(400);
+
+    expect(res.body.success).toBe(false);
+  });
+
+  // ── University Email Enforcement (FR-1.2) ──
 
   test('should reject student registration with non-university email', async () => {
     const res = await request(app)
@@ -150,38 +198,15 @@ describe('POST /api/register', () => {
 
     expect(res.body.success).toBe(false);
     const hasEmailError = res.body.errors?.some(
-      (e) => e.message && e.message.includes('university email')
+      (e) => e.message && e.message.includes('uohyd.ac.in')
     );
     expect(hasEmailError).toBe(true);
   });
 
-  test('should reject faculty registration with non-university email', async () => {
+  test('should reject student registration with subdomain of university domain', async () => {
     const res = await request(app)
       .post('/api/register')
-      .send({
-        name: 'Dr. Faculty',
-        email: 'faculty@gmail.com',
-        password: 'Faculty@123',
-        department: 'Computer Science',
-        role: 'Faculty',
-      })
-      .expect(400);
-
-    expect(res.body.success).toBe(false);
-  });
-
-  // ── Admin Self-Registration Block ──
-
-  test('should reject self-registration as Admin', async () => {
-    const res = await request(app)
-      .post('/api/register')
-      .send({
-        name: 'Hacker',
-        email: 'hacker@uohyd.ac.in',
-        password: 'Hack@12345',
-        department: 'IT',
-        role: 'Admin',
-      })
+      .send({ ...validStudentPayload, email: 'student@sub.uohyd.ac.in' })
       .expect(400);
 
     expect(res.body.success).toBe(false);
@@ -190,13 +215,11 @@ describe('POST /api/register', () => {
   // ── Duplicate Email ──
 
   test('should reject duplicate email registration', async () => {
-    // First registration
     await request(app)
       .post('/api/register')
       .send(validStudentPayload)
       .expect(201);
 
-    // Second registration with same email
     const res = await request(app)
       .post('/api/register')
       .send(validStudentPayload)

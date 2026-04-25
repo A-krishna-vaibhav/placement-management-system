@@ -1,17 +1,8 @@
-/**
- * Auth Context
- * ────────────
- * Provides authentication state and methods to the entire app.
- * Handles Firebase Auth state changes and Firestore profile sync.
- */
-
 import { createContext, useContext, useState, useEffect } from 'react';
 import {
-  createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
-  sendEmailVerification,
   sendPasswordResetEmail,
   onAuthStateChanged,
 } from 'firebase/auth';
@@ -22,30 +13,34 @@ const AuthContext = createContext(null);
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (!context) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 };
 
-export const AuthProvider = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState(null);
-  const [userProfile, setUserProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+const PENDING_TOKEN_KEY = 'pms_pending_token';
+const PENDING_EMAIL_KEY = 'pms_pending_email';
+const OTP_PENDING_KEY   = 'pms_otp_pending';
 
-  // Listen to auth state changes
+export const AuthProvider = ({ children }) => {
+  const [currentUser, setCurrentUser]   = useState(null);
+  const [userProfile, setUserProfile]   = useState(null);
+  const [loading, setLoading]           = useState(true);
+  const [error, setError]               = useState(null);
+  const [pendingEmail, setPendingEmail] = useState(
+    () => sessionStorage.getItem(PENDING_EMAIL_KEY) || ''
+  );
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
 
-      if (user && user.emailVerified) {
+      // Don't fetch profile while OTP is still pending (mid-login flow)
+      if (user && !sessionStorage.getItem(OTP_PENDING_KEY)) {
         try {
           const token = await user.getIdToken();
-          const response = await authAPI.login(token);
+          const response = await authAPI.getProfile(token);
           setUserProfile(response.data);
-        } catch (err) {
-          console.error('Failed to fetch profile:', err);
+        } catch {
           setUserProfile(null);
         }
       } else {
@@ -58,84 +53,108 @@ export const AuthProvider = ({ children }) => {
     return unsubscribe;
   }, []);
 
-  // Register with email & password
-  const register = async ({ name, email, password, department, role }) => {
+  /* ─── Register ─── */
+  const register = async (payload) => {
+    setError(null);
     try {
-      setError(null);
-
-      // 1. Call backend to create user in Firebase Auth + Firestore
-      const response = await authAPI.register({
-        name,
-        email,
-        password,
-        department,
-        role,
-      });
-
-      // 2. Sign in on the client side to get the user object
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-
-      // 3. Send verification email
-      await sendEmailVerification(userCredential.user);
-
-      // 4. Sign out until verified
-      await signOut(auth);
-
-      return response;
+      return await authAPI.register(payload);
     } catch (err) {
       setError(err.message || 'Registration failed');
       throw err;
     }
   };
 
-  // Login with email & password
-  const login = async (email, password) => {
+  /* ─── Login Step 1 — Firebase auth + OTP issuance (or direct for exempt roles) ─── */
+  const startLogin = async (email, password) => {
+    setError(null);
     try {
-      setError(null);
+      const cred  = await signInWithEmailAndPassword(auth, email, password);
+      const token = await cred.user.getIdToken();
 
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
-
-      if (!user.emailVerified) {
-        await signOut(auth);
-        throw new Error('Please verify your email before logging in.');
-      }
-
-      // Get token and sync with backend
-      const token = await user.getIdToken();
       const response = await authAPI.login(token);
-      setUserProfile(response.data);
+
+      if (response.data?.otpRequired === false) {
+        // OTP-exempt role (ADMIN / TPO / FACULTY) — session is complete
+        sessionStorage.removeItem(PENDING_TOKEN_KEY);
+        sessionStorage.removeItem(PENDING_EMAIL_KEY);
+        sessionStorage.removeItem(OTP_PENDING_KEY);
+        setPendingEmail('');
+        setUserProfile(response.data);
+      } else {
+        // OTP required — store pending state for the verify-otp page
+        sessionStorage.setItem(PENDING_TOKEN_KEY, token);
+        sessionStorage.setItem(PENDING_EMAIL_KEY, email);
+        sessionStorage.setItem(OTP_PENDING_KEY, '1');
+        setPendingEmail(email);
+      }
 
       return response;
     } catch (err) {
-      setError(err.message || 'Login failed');
+      sessionStorage.removeItem(PENDING_TOKEN_KEY);
+      sessionStorage.removeItem(PENDING_EMAIL_KEY);
+      sessionStorage.removeItem(OTP_PENDING_KEY);
+      setError(err.message || 'Sign-in failed');
+      // Preserve the Firebase error code so LoginPage can show a specific message
+      const richErr = new Error(err.message || 'Sign-in failed');
+      richErr.code = err.code;
+      throw richErr;
+    }
+  };
+
+  /* ─── Login Step 2 — OTP verification ─── */
+  const completeLogin = async (otp) => {
+    setError(null);
+    const token = sessionStorage.getItem(PENDING_TOKEN_KEY);
+    if (!token) {
+      const err = new Error('Session expired. Please sign in again.');
+      setError(err.message);
+      throw err;
+    }
+    try {
+      const response = await authAPI.verifyLoginOTP(token, otp);
+      sessionStorage.removeItem(PENDING_TOKEN_KEY);
+      sessionStorage.removeItem(PENDING_EMAIL_KEY);
+      sessionStorage.removeItem(OTP_PENDING_KEY);
+      setPendingEmail('');
+      setUserProfile(response.data);
+      return response;
+    } catch (err) {
+      setError(err.message || 'OTP verification failed');
       throw err;
     }
   };
 
-  // Login with Google
-  const loginWithGoogle = async () => {
+  /* ─── Resend OTP (re-calls /login with stored token) ─── */
+  const startLoginResend = async () => {
+    setError(null);
+    const token = sessionStorage.getItem(PENDING_TOKEN_KEY);
+    if (!token) {
+      const err = new Error('Session expired. Please sign in again.');
+      setError(err.message);
+      throw err;
+    }
     try {
-      setError(null);
+      return await authAPI.login(token);
+    } catch (err) {
+      setError(err.message || 'Could not resend code');
+      throw err;
+    }
+  };
 
+  /* ─── Google sign-in (Google is already 2FA — no OTP step) ─── */
+  const loginWithGoogle = async () => {
+    setError(null);
+    try {
       const result = await signInWithPopup(auth, googleProvider);
-      const user = result.user;
-
-      // Get token and sync with backend
-      const token = await user.getIdToken();
-
+      const token  = await result.user.getIdToken();
       try {
         const response = await authAPI.login(token);
         setUserProfile(response.data);
         return response;
       } catch (err) {
-        // If user profile not found, they need to complete registration
         if (err.status === 404) {
-          // Sign out and redirect to registration
           await signOut(auth);
-          throw new Error(
-            'No account found. Please register first, then sign in with Google.'
-          );
+          throw new Error('No account found. Please register first, then sign in with Google.');
         }
         throw err;
       }
@@ -145,10 +164,10 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Forgot password
+  /* ─── Forgot password ─── */
   const forgotPassword = async (email) => {
+    setError(null);
     try {
-      setError(null);
       await sendPasswordResetEmail(auth, email);
     } catch (err) {
       setError(err.message || 'Failed to send reset email');
@@ -156,10 +175,14 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Logout
+  /* ─── Logout ─── */
   const logout = async () => {
     try {
       await signOut(auth);
+      sessionStorage.removeItem(PENDING_TOKEN_KEY);
+      sessionStorage.removeItem(PENDING_EMAIL_KEY);
+      sessionStorage.removeItem(OTP_PENDING_KEY);
+      setPendingEmail('');
       setUserProfile(null);
       setCurrentUser(null);
     } catch (err) {
@@ -168,11 +191,8 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Get current ID token
   const getToken = async () => {
-    if (currentUser) {
-      return await currentUser.getIdToken();
-    }
+    if (currentUser) return await currentUser.getIdToken();
     return null;
   };
 
@@ -181,8 +201,11 @@ export const AuthProvider = ({ children }) => {
     userProfile,
     loading,
     error,
+    pendingEmail,
     register,
-    login,
+    startLogin,
+    completeLogin,
+    startLoginResend,
     loginWithGoogle,
     forgotPassword,
     logout,
