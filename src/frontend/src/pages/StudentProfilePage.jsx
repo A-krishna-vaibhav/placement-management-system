@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { studentProfileAPI, declarationAPI, referenceAPI } from '../services/api';
 import { Button, Card, Badge, PageHeader, Alert } from '../components/ui';
