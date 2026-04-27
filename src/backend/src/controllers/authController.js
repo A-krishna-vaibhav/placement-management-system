@@ -57,12 +57,38 @@ const register = async (req, res) => {
       });
     } catch (firebaseErr) {
       if (firebaseErr.code === 'auth/email-already-exists') {
-        return res.status(409).json({
-          success: false,
-          message: 'An account with this email already exists.',
-        });
+        // Check if a Firestore profile still exists for this email
+        const existingSnap = await db.collection(COLLECTIONS.USERS)
+          .where('email', '==', email).limit(1).get();
+
+        if (!existingSnap.empty) {
+          // Legitimate existing account — reject
+          return res.status(409).json({
+            success: false,
+            message: 'An account with this email already exists.',
+          });
+        }
+
+        // Firestore doc was deleted but Firebase Auth record is stale → clean up and retry
+        try {
+          const staleAuth = await auth.getUserByEmail(email);
+          await auth.deleteUser(staleAuth.uid);
+          userRecord = await auth.createUser({
+            email,
+            password,
+            displayName: name,
+            emailVerified: false,
+          });
+        } catch (retryErr) {
+          console.error('Stale auth cleanup failed:', retryErr.message);
+          return res.status(409).json({
+            success: false,
+            message: 'Could not complete registration. Please contact the administrator.',
+          });
+        }
+      } else {
+        throw firebaseErr;
       }
-      throw firebaseErr;
     }
 
     // Set role claim
@@ -115,6 +141,13 @@ const register = async (req, res) => {
     }
 
     if (role === ROLES.COMPANY) {
+      // Clean up any stale pending company docs with same email (from prior deleted users)
+      const staleSnap = await db.collection(COLLECTIONS.COMPANIES)
+        .where('hrContact.email', '==', email)
+        .where('status', '==', COMPANY_STATUS.PENDING_APPROVAL)
+        .get();
+      staleSnap.forEach((d) => batch.delete(d.ref));
+
       const companyDoc = {
         companyId:            userRecord.uid,
         primaryContactUserId: userRecord.uid,

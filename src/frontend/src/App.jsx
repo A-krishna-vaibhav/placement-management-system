@@ -19,9 +19,19 @@ import JobDetailPage      from './pages/JobDetailPage';
 import ApplicationsPage   from './pages/ApplicationsPage';
 import RecruiterJobsPage  from './pages/RecruiterJobsPage';
 import JobApplicantsPage  from './pages/JobApplicantsPage';
+import ExamSchedulePage   from './pages/ExamSchedulePage';
 import TPOJobsPage        from './pages/TPOJobsPage';
 import TPOCompaniesPage   from './pages/TPOCompaniesPage';
+import TPOExamSchedulesPage from './pages/TPOExamSchedulesPage';
 import FacultyStudentsPage from './pages/FacultyStudentsPage';
+import FacultyJobsPage     from './pages/FacultyJobsPage';
+import FacultyExamsPage    from './pages/FacultyExamsPage';
+import StudentExamsPage    from './pages/StudentExamsPage';
+import AnnouncementsPage        from './pages/AnnouncementsPage';
+import InterviewRequestPage      from './pages/InterviewRequestPage';
+import TPOInterviewSchedulesPage from './pages/TPOInterviewSchedulesPage';
+import FacultyInterviewsPage     from './pages/FacultyInterviewsPage';
+import StudentInterviewsPage     from './pages/StudentInterviewsPage';
 import CompanyProfilePage from './pages/CompanyProfilePage';
 import UnauthorizedPage   from './pages/UnauthorizedPage';
 import NotFoundPage       from './pages/NotFoundPage';
@@ -62,7 +72,8 @@ const App = () => {
 
           {/* All authenticated users */}
           <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/dashboard"      element={<DashboardPage />} />
+            <Route path="/announcements"  element={<AnnouncementsPage />} />
           </Route>
 
           {/* Student */}
@@ -71,26 +82,35 @@ const App = () => {
             <Route path="/jobs"             element={<JobsPage />} />
             <Route path="/jobs/:id"         element={<JobDetailPage />} />
             <Route path="/applications"     element={<ApplicationsPage />} />
+            <Route path="/my-exams"          element={<StudentExamsPage />} />
+            <Route path="/my-interviews"     element={<StudentInterviewsPage />} />
           </Route>
 
           {/* Company (recruiter) */}
           <Route element={<ProtectedRoute allowedRoles={['COMPANY']}><Layout /></ProtectedRoute>}>
-            <Route path="/company/jobs"                element={<RecruiterJobsPage />} />
-            <Route path="/company/jobs/:id/applicants" element={<JobApplicantsPage />} />
-            <Route path="/company/profile"             element={<CompanyProfilePage />} />
-            <Route path="/jobs/:id"                    element={<JobDetailPage />} />
+            <Route path="/company/jobs"                               element={<RecruiterJobsPage />} />
+            <Route path="/company/jobs/:id/applicants"                element={<JobApplicantsPage />} />
+            <Route path="/company/jobs/:jobId/exam-schedule"          element={<ExamSchedulePage />} />
+            <Route path="/company/jobs/:id/interview-schedule"        element={<InterviewRequestPage />} />
+            <Route path="/company/profile"                            element={<CompanyProfilePage />} />
+            <Route path="/jobs/:id"                                   element={<JobDetailPage />} />
           </Route>
 
           {/* Faculty */}
           <Route element={<ProtectedRoute allowedRoles={['FACULTY']}><Layout /></ProtectedRoute>}>
-            <Route path="/faculty/students" element={<FacultyStudentsPage />} />
+            <Route path="/faculty/students"    element={<FacultyStudentsPage />} />
+            <Route path="/faculty/jobs"        element={<FacultyJobsPage />} />
+            <Route path="/faculty/exams"       element={<FacultyExamsPage />} />
+            <Route path="/faculty/interviews"  element={<FacultyInterviewsPage />} />
           </Route>
 
           {/* TPO + Admin */}
           <Route element={<ProtectedRoute allowedRoles={['TPO', 'ADMIN']}><Layout /></ProtectedRoute>}>
-            <Route path="/tpo/jobs"      element={<TPOJobsPage />} />
-            <Route path="/tpo/companies" element={<TPOCompaniesPage />} />
-            <Route path="/jobs/:id"      element={<JobDetailPage />} />
+            <Route path="/tpo/jobs"                element={<TPOJobsPage />} />
+            <Route path="/tpo/companies"           element={<TPOCompaniesPage />} />
+            <Route path="/tpo/exam-schedules"      element={<TPOExamSchedulesPage />} />
+            <Route path="/tpo/interview-schedules" element={<TPOInterviewSchedulesPage />} />
+            <Route path="/jobs/:id"                element={<JobDetailPage />} />
           </Route>
 
           {/* Admin */}

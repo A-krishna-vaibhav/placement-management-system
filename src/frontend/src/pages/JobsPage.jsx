@@ -88,14 +88,12 @@ const JobsPage = () => {
         const token = await getToken();
         const [jobsRes, appsRes, declRes] = await Promise.all([
           jobAPI.list(token),
-          fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001/api'}/applications`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }).then((r) => r.json()),
-          declarationAPI.getMySigned(token),
+          applicationAPI.listMine(token),
+          declarationAPI.getMySigned(token).catch(() => ({ data: [] })),
         ]);
         setJobs(jobsRes.data || []);
         setAppliedIds(new Set((appsRes.data || []).map((a) => a.jobId)));
-        setHasSigned((declRes.data || []).length > 0);
+        setHasSigned(Array.isArray(declRes.data) && declRes.data.length > 0);
       } catch (e) {
         toast.error(e.message || 'Failed to load jobs.');
       } finally {

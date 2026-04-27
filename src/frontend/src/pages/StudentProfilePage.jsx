@@ -1,11 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { studentProfileAPI, declarationAPI, referenceAPI } from '../services/api';
 import { Button, Card, Badge, PageHeader, Alert } from '../components/ui';
 import toast from 'react-hot-toast';
 import {
-  HiOutlineUser, HiOutlineDocumentText, HiOutlineUpload,
-  HiOutlineTrash, HiOutlinePencil, HiOutlineX, HiOutlineCheck,
+  HiOutlineUser, HiOutlinePencil, HiOutlineX, HiOutlineCheck,
   HiOutlineShieldCheck, HiOutlineExclamation,
 } from 'react-icons/hi';
 
@@ -140,19 +139,17 @@ const StudentProfilePage = () => {
   const [showDecl, setShowDecl]         = useState(false);
   const [loading, setLoading]           = useState(true);
   const [saving, setSaving]             = useState(false);
-  const [uploading, setUploading]       = useState(false);
   const [editing, setEditing]           = useState(false);
   const [schools, setSchools]           = useState([]);
   const [departments, setDepartments]   = useState([]);
   const [form, setForm]                 = useState({});
-  const fileRef = useRef(null);
 
   const fetchAll = async () => {
     try {
       const token = await getToken();
       const [profileRes, sigRes, schoolsRes] = await Promise.all([
         studentProfileAPI.get(token),
-        declarationAPI.getMySigned(token),
+        declarationAPI.getMySigned(token).catch(() => ({ data: [] })),
         referenceAPI.getSchools(),
       ]);
       const p = profileRes.data;
@@ -171,7 +168,7 @@ const StudentProfilePage = () => {
         schoolId:       p.schoolId || '',
         departmentId:   p.departmentId || '',
       });
-      setHasSigned(sigRes.data.length > 0);
+      setHasSigned(Array.isArray(sigRes.data) && sigRes.data.length > 0);
 
       // Pre-load departments if school already set
       if (p.schoolId) {
@@ -206,43 +203,14 @@ const StudentProfilePage = () => {
         backlogs: Number(form.backlogs),
         skills:   form.skills.split(',').map((s) => s.trim()).filter(Boolean),
       };
-      const res = await studentProfileAPI.update(token, payload);
-      setProfile(res.data);
+      await studentProfileAPI.update(token, payload);
       setEditing(false);
       toast.success('Profile updated.');
+      await fetchAll();
     } catch (e) {
       toast.error(e.message || 'Failed to save.');
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleResumeUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    try {
-      const token = await getToken();
-      await studentProfileAPI.uploadResume(token, file);
-      toast.success('Resume uploaded.');
-      fetchAll();
-    } catch (e) {
-      toast.error(e.message || 'Upload failed.');
-    } finally {
-      setUploading(false);
-      e.target.value = '';
-    }
-  };
-
-  const handleResumeDelete = async (versionId) => {
-    if (!confirm('Delete this resume?')) return;
-    try {
-      const token = await getToken();
-      await studentProfileAPI.deleteResume(token, versionId);
-      toast.success('Resume deleted.');
-      fetchAll();
-    } catch (e) {
-      toast.error(e.message || 'Delete failed.');
     }
   };
 
@@ -345,16 +313,16 @@ const StudentProfilePage = () => {
             )}
           </div>
 
-          {/* Department */}
+          {/* Programme */}
           <div>
-            <label className="block text-xs font-medium text-ink-400 uppercase tracking-wide mb-1">Department</label>
+            <label className="block text-xs font-medium text-ink-400 uppercase tracking-wide mb-1">Programme</label>
             {editing ? (
               <select
                 value={form.departmentId}
                 onChange={(e) => setForm((f) => ({ ...f, departmentId: e.target.value }))}
                 className="w-full border border-ink-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-maroon-500"
               >
-                <option value="">Select department…</option>
+                <option value="">Select programme…</option>
                 {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>
             ) : (
@@ -385,49 +353,6 @@ const StudentProfilePage = () => {
             </div>
           )}
         </div>
-      </div>
-
-      {/* Resume Section */}
-      <div className="card p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-ink-800 flex items-center gap-2">
-            <HiOutlineDocumentText className="w-4 h-4 text-maroon-600" /> Resumes
-            <span className="text-xs text-ink-400 font-normal">(max 3)</span>
-          </h2>
-          <input ref={fileRef} type="file" accept="application/pdf" className="hidden" onChange={handleResumeUpload} />
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={uploading || (profile?.resumes?.length >= 3)}
-            onClick={() => fileRef.current?.click()}
-            loading={uploading}
-          >
-            <HiOutlineUpload className="w-4 h-4 mr-1" /> Upload PDF
-          </Button>
-        </div>
-
-        {(profile?.resumes || []).length === 0 ? (
-          <p className="text-sm text-ink-400">No resumes uploaded yet.</p>
-        ) : (
-          <ul className="space-y-2">
-            {profile.resumes.map((r) => (
-              <li key={r.versionId} className="flex items-center justify-between p-3 bg-cream-50 border border-ink-200 rounded-xl">
-                <div>
-                  <p className="text-sm font-medium text-ink-800">{r.originalName}</p>
-                  <p className="text-xs text-ink-400">{new Date(r.uploadedAt).toLocaleDateString()} · {(r.sizeBytes / 1024).toFixed(0)} KB</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {r.url && (
-                    <a href={r.url} target="_blank" rel="noreferrer" className="text-xs text-maroon-600 hover:underline">View</a>
-                  )}
-                  <button onClick={() => handleResumeDelete(r.versionId)} className="text-ink-400 hover:text-red-600 transition-colors">
-                    <HiOutlineTrash className="w-4 h-4" />
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
       </div>
 
       {showDecl && (

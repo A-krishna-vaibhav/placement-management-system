@@ -24,6 +24,9 @@ const jobRoutes          = require('./routes/jobRoutes');
 const applicationRoutes  = require('./routes/applicationRoutes');
 const statsRoutes        = require('./routes/statsRoutes');
 const facultyRoutes      = require('./routes/facultyRoutes');
+const announcementRoutes = require('./routes/announcementRoutes');
+const examRoutes         = require('./routes/examRoutes');
+const interviewRoutes    = require('./routes/interviewRoutes');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 
 const app = express();
@@ -100,6 +103,9 @@ app.use('/api/jobs',            jobRoutes);
 app.use('/api/applications',    applicationRoutes);
 app.use('/api/stats',           statsRoutes);
 app.use('/api/faculty',         facultyRoutes);
+app.use('/api/announcements',   announcementRoutes);
+app.use('/api',                 examRoutes);
+app.use('/api',                 interviewRoutes);
 
 /* ────────── Error Handling ────────── */
 app.use(notFoundHandler);

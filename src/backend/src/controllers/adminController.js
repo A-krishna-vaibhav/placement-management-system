@@ -171,8 +171,27 @@ const deleteUser = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
 
-    await db.collection(COLLECTIONS.USERS).doc(id).delete();
-    await auth.deleteUser(id);
+    const userData = userDoc.data();
+    const batch = db.batch();
+    batch.delete(db.collection(COLLECTIONS.USERS).doc(id));
+
+    // Clean up company doc so re-registration works cleanly
+    if (userData.role === ROLES.COMPANY) {
+      const companySnap = await db.collection(COLLECTIONS.COMPANIES)
+        .where('primaryContactUserId', '==', id).get();
+      companySnap.forEach((d) => batch.delete(d.ref));
+    }
+
+    await batch.commit();
+
+    // Delete Firebase Auth user — best-effort so a stale auth record never blocks re-registration
+    try {
+      await auth.deleteUser(id);
+    } catch (authErr) {
+      if (authErr.code !== 'auth/user-not-found') {
+        console.error('Firebase Auth delete warning (non-critical):', authErr.message);
+      }
+    }
 
     return res.status(200).json({
       success: true,
@@ -339,7 +358,8 @@ const approveCompany = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Company not found.' });
     }
 
-    const userRef = db.collection(COLLECTIONS.USERS).doc(companyDoc.data().primaryContactUserId);
+    const primaryUserId = companyDoc.data().primaryContactUserId;
+    const userRef = db.collection(COLLECTIONS.USERS).doc(primaryUserId);
     const batch = db.batch();
     batch.update(companyRef, {
       status: COMPANY_STATUS.ACTIVE,
@@ -347,7 +367,10 @@ const approveCompany = async (req, res) => {
       approvedBy: req.user.uid,
       updatedAt: now,
     });
-    batch.update(userRef, { status: ACCOUNT_STATUS.ACTIVE, updatedAt: now });
+    const userSnap = await userRef.get();
+    if (userSnap.exists) {
+      batch.update(userRef, { status: ACCOUNT_STATUS.ACTIVE, updatedAt: now });
+    }
     await batch.commit();
 
     await auditLogger.log({
@@ -384,10 +407,14 @@ const rejectCompany = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Company not found.' });
     }
 
-    const userRef = db.collection(COLLECTIONS.USERS).doc(companyDoc.data().primaryContactUserId);
+    const primaryUserId = companyDoc.data().primaryContactUserId;
+    const userRef = db.collection(COLLECTIONS.USERS).doc(primaryUserId);
     const batch = db.batch();
     batch.update(companyRef, { status: COMPANY_STATUS.REJECTED, updatedAt: now });
-    batch.update(userRef, { status: ACCOUNT_STATUS.DEACTIVATED, updatedAt: now });
+    const userSnap = await userRef.get();
+    if (userSnap.exists) {
+      batch.update(userRef, { status: ACCOUNT_STATUS.DEACTIVATED, updatedAt: now });
+    }
     await batch.commit();
 
     await auditLogger.log({
@@ -410,6 +437,22 @@ const rejectCompany = async (req, res) => {
   }
 };
 
+/* ──────────────────── GET /api/admin/companies/pending ──────────────────── */
+
+const listPendingCompanies = async (_req, res) => {
+  try {
+    const snap = await db
+      .collection(COLLECTIONS.COMPANIES)
+      .where('status', '==', COMPANY_STATUS.PENDING_APPROVAL)
+      .get();
+    const companies = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    return res.status(200).json({ success: true, data: companies });
+  } catch (error) {
+    console.error('listPendingCompanies error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch pending companies.' });
+  }
+};
+
 module.exports = {
   listUsers,
   updateUserRole,
@@ -419,4 +462,5 @@ module.exports = {
   provisionTPO,
   approveCompany,
   rejectCompany,
+  listPendingCompanies,
 };

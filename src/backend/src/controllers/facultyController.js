@@ -6,7 +6,7 @@
  */
 
 const { db } = require('../config/firebase');
-const { COLLECTIONS, ROLES } = require('../config/constants');
+const { COLLECTIONS, ROLES, JOB_STATUS } = require('../config/constants');
 
 const getMyStudents = async (req, res) => {
   try {
@@ -82,13 +82,45 @@ const getStudentApplications = async (req, res) => {
 
     const snap = await db.collection(COLLECTIONS.APPLICATIONS)
       .where('studentId', '==', studentId)
-      .orderBy('appliedAt', 'desc').get();
+      .get();
 
-    return res.json({ success: true, data: snap.docs.map((d) => ({ id: d.id, ...d.data() })) });
+    const apps = snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (b.appliedAt > a.appliedAt ? 1 : -1));
+    return res.json({ success: true, data: apps });
   } catch (error) {
     console.error('getStudentApplications error:', error);
     return res.status(500).json({ success: false, message: 'Failed to fetch applications.' });
   }
 };
 
-module.exports = { getMyStudents, getStudentApplications };
+/* ──────────── GET /api/faculty/jobs ──────────── */
+
+const getMyJobs = async (req, res) => {
+  try {
+    const profileDoc = await db.collection(COLLECTIONS.FACULTY_PROFILES).doc(req.user.uid).get();
+    if (!profileDoc.exists) {
+      return res.status(404).json({ success: false, message: 'Faculty profile not found.' });
+    }
+    const { schoolId } = profileDoc.data();
+
+    const snap = await db.collection(COLLECTIONS.JOBS)
+      .where('status', '==', JOB_STATUS.OPEN).get();
+
+    // Show all jobs assigned to this school regardless of faculty approval state
+    // so faculty can review pending ones and see approved/rejected history
+    const jobs = snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .filter((j) => j.assignedSchools?.includes(schoolId))
+      .sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1))
+      // Attach this school's approval state for easy consumption by the frontend
+      .map((j) => ({ ...j, mySchoolApproval: j.schoolApprovals?.[schoolId] || null }));
+
+    return res.json({ success: true, data: jobs, meta: { schoolId } });
+  } catch (error) {
+    console.error('getMyJobs error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch jobs.' });
+  }
+};
+
+module.exports = { getMyStudents, getStudentApplications, getMyJobs };

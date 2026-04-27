@@ -104,9 +104,7 @@ const quickLinks = {
     { to: '/tpo/companies', label: 'Pending Companies', desc: 'Approve new recruiters' },
   ],
   ADMIN: [
-    { to: '/admin/users',   label: 'Manage Users',      desc: 'Roles, status, provisioning' },
-    { to: '/tpo/jobs',      label: 'Manage Jobs',       desc: 'Approve or reject postings' },
-    { to: '/tpo/companies', label: 'Pending Companies', desc: 'Approve new recruiters' },
+    { to: '/admin/users', label: 'Manage Users', desc: 'Roles, status, provisioning' },
   ],
   FACULTY: [
     { to: '/faculty/students', label: 'Department Students', desc: 'View placement progress' },

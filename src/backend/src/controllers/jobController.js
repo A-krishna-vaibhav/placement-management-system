@@ -8,10 +8,14 @@
  * PATCH /api/jobs/:id/reject           — TPO rejects  (FR-3.4)
  * PATCH /api/jobs/:id/close            — TPO closes   (FR-3.5)
  * PATCH /api/jobs/:id/withdraw         — company withdraws
+ * PATCH /api/jobs/:id/assign           — TPO assigns job to schools
+ * GET   /api/jobs/:id/suggested-schools — suggest schools based on job content
  */
 
 const { db } = require('../config/firebase');
-const { COLLECTIONS, ROLES, JOB_STATUS, AUDIT_ACTION } = require('../config/constants');
+const {
+  COLLECTIONS, ROLES, JOB_STATUS, SCHOOL_APPROVAL_STATUS, AUDIT_ACTION, JOB_ASSIGNMENT_RULES,
+} = require('../config/constants');
 const { log: auditLog } = require('../services/auditLogger');
 const { sendJobApprovalEmail, sendJobRejectionEmail } = require('../services/emailService');
 
@@ -30,7 +34,6 @@ const createJob = async (req, res) => {
       return res.status(400).json({ success: false, message: 'title and description are required.' });
     }
 
-    // Load company doc
     const companyDoc = await db.collection(COLLECTIONS.COMPANIES).doc(uid).get();
     if (!companyDoc.exists) {
       return res.status(404).json({ success: false, message: 'Company profile not found.' });
@@ -39,25 +42,28 @@ const createJob = async (req, res) => {
 
     const now = new Date().toISOString();
     const jobData = {
-      companyId:    uid,
-      companyName:  company.companyName,
+      companyId:       uid,
+      companyName:     company.companyName,
       title,
       description,
-      location:     location || null,
-      jobType:      jobType || null,       // INTERNSHIP | FULL_TIME | PART_TIME
-      stipend:      stipend || null,
-      ctc:          ctc || null,
-      openings:     openings ? Number(openings) : null,
-      eligibility:  eligibility || {},     // { minCgpa, allowedBranches, maxBacklogs, ... }
-      status:       JOB_STATUS.PENDING_APPROVAL,
-      approvedAt:   null,
-      approvedBy:   null,
-      rejectedAt:   null,
-      rejectedBy:   null,
+      location:        location || null,
+      jobType:         jobType || null,
+      stipend:         stipend || null,
+      ctc:             ctc || null,
+      openings:        openings ? Number(openings) : null,
+      eligibility:     eligibility || {},
+      status:          JOB_STATUS.PENDING_APPROVAL,
+      // assignedSchools is populated by TPO after approval.
+      // Empty array = visible to all eligible students once OPEN.
+      assignedSchools: [],
+      approvedAt:      null,
+      approvedBy:      null,
+      rejectedAt:      null,
+      rejectedBy:      null,
       rejectionReason: null,
-      closedAt:     null,
-      createdAt:    now,
-      updatedAt:    now,
+      closedAt:        null,
+      createdAt:       now,
+      updatedAt:       now,
     };
 
     const ref = await db.collection(COLLECTIONS.JOBS).add(jobData);
@@ -78,8 +84,7 @@ const createJob = async (req, res) => {
 const listJobs = async (req, res) => {
   try {
     const { role, uid } = req.user;
-    const limit  = Math.min(parseInt(req.query.limit) || 50, 100);
-    const cursor = req.query.cursor; // last doc createdAt for pagination
+    const limit = Math.min(parseInt(req.query.limit) || 50, 100);
 
     let query = db.collection(COLLECTIONS.JOBS);
 
@@ -92,16 +97,26 @@ const listJobs = async (req, res) => {
       if (statusFilter) query = query.where('status', '==', statusFilter);
     }
 
-    query = query.orderBy('createdAt', 'desc').limit(limit + 1);
-    if (cursor) query = query.startAfter(cursor);
-
+    // No orderBy — avoids composite index requirement; sort in JS instead
     const snap = await query.get();
-    const docs = snap.docs.slice(0, limit);
-    const hasMore = snap.docs.length > limit;
-    const jobs = docs.map((d) => ({ id: d.id, ...d.data() }));
-    const nextCursor = hasMore ? docs[docs.length - 1].data().createdAt : null;
+    let jobs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-    return res.status(200).json({ success: true, data: jobs, meta: { hasMore, nextCursor } });
+    // Students see a job only when their school's faculty has explicitly approved it.
+    if (role === ROLES.STUDENT) {
+      const profileDoc = await db.collection(COLLECTIONS.STUDENT_PROFILES).doc(uid).get();
+      const studentSchoolId = profileDoc.exists ? profileDoc.data().schoolId : null;
+
+      jobs = jobs.filter(
+        (j) => studentSchoolId &&
+               j.schoolApprovals?.[studentSchoolId]?.status === SCHOOL_APPROVAL_STATUS.FACULTY_APPROVED
+      );
+    }
+
+    jobs = jobs
+      .sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1))
+      .slice(0, limit);
+
+    return res.status(200).json({ success: true, data: jobs, meta: { hasMore: false, nextCursor: null } });
   } catch (error) {
     console.error('List jobs error:', error);
     return res.status(500).json({ success: false, message: 'Failed to fetch jobs.' });
@@ -118,11 +133,17 @@ const getJob = async (req, res) => {
     }
     const job = { id: doc.id, ...doc.data() };
 
-    // Students can only view OPEN jobs
-    if (req.user.role === ROLES.STUDENT && job.status !== JOB_STATUS.OPEN) {
-      return res.status(404).json({ success: false, message: 'Job not found.' });
+    if (req.user.role === ROLES.STUDENT) {
+      if (job.status !== JOB_STATUS.OPEN) {
+        return res.status(404).json({ success: false, message: 'Job not found.' });
+      }
+      const profileDoc = await db.collection(COLLECTIONS.STUDENT_PROFILES).doc(req.user.uid).get();
+      const studentSchoolId = profileDoc.exists ? profileDoc.data().schoolId : null;
+      if (!studentSchoolId ||
+          job.schoolApprovals?.[studentSchoolId]?.status !== SCHOOL_APPROVAL_STATUS.FACULTY_APPROVED) {
+        return res.status(404).json({ success: false, message: 'Job not found.' });
+      }
     }
-    // Companies can only view their own jobs
     if (req.user.role === ROLES.COMPANY && job.companyId !== req.user.uid) {
       return res.status(403).json({ success: false, message: 'Access denied.' });
     }
@@ -166,7 +187,6 @@ const approveJob = async (req, res) => {
       ipAddress:      req.ip,
     });
 
-    // Notify company — best effort
     const companyUserDoc = await db.collection(COLLECTIONS.USERS).doc(job.companyId).get();
     if (companyUserDoc.exists) {
       sendJobApprovalEmail(companyUserDoc.data().email, job.companyName, job.title).catch((e) =>
@@ -280,4 +300,208 @@ const withdrawJob = async (req, res) => {
   }
 };
 
-module.exports = { createJob, listJobs, getJob, approveJob, rejectJob, closeJob, withdrawJob };
+/* ──────────── PATCH /api/jobs/:id/assign ──────────── */
+
+const assignJobToSchools = async (req, res) => {
+  try {
+    const { schoolIds } = req.body;
+
+    if (!Array.isArray(schoolIds)) {
+      return res.status(400).json({ success: false, message: 'schoolIds must be an array of school ID strings.' });
+    }
+
+    const jobRef = db.collection(COLLECTIONS.JOBS).doc(req.params.id);
+    const jobDoc = await jobRef.get();
+    if (!jobDoc.exists) {
+      return res.status(404).json({ success: false, message: 'Job not found.' });
+    }
+    const job = jobDoc.data();
+
+    const now = new Date().toISOString();
+
+    // Preserve existing per-school faculty approvals; new schools start as PENDING_FACULTY
+    const currentApprovals = job.schoolApprovals || {};
+    const schoolApprovals = {};
+    for (const sid of schoolIds) {
+      schoolApprovals[sid] = currentApprovals[sid] || {
+        status:          SCHOOL_APPROVAL_STATUS.PENDING_FACULTY,
+        approvedBy:      null,
+        approvedAt:      null,
+        rejectionReason: null,
+      };
+    }
+
+    await jobRef.update({ assignedSchools: schoolIds, schoolApprovals, updatedAt: now });
+
+    await auditLog({
+      actorUserId:    req.user.uid,
+      actorRole:      req.user.role,
+      actionType:     AUDIT_ACTION.ASSIGN_JD,
+      targetType:     'job',
+      targetId:       req.params.id,
+      payloadSummary: `Assigned "${job.title}" to schools: [${schoolIds.join(', ')}]`,
+      ipAddress:      req.ip,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: schoolIds.length
+        ? `Job assigned to ${schoolIds.length} school(s). Faculty approval pending.`
+        : 'Job assignment cleared.',
+      data: { assignedSchools: schoolIds, schoolApprovals },
+    });
+  } catch (error) {
+    console.error('Assign job error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to assign job.' });
+  }
+};
+
+/* ──────────── PATCH /api/jobs/:id/faculty-approve ──────────── */
+
+const facultyApproveJob = async (req, res) => {
+  try {
+    const profileDoc = await db.collection(COLLECTIONS.FACULTY_PROFILES).doc(req.user.uid).get();
+    if (!profileDoc.exists) return res.status(404).json({ success: false, message: 'Faculty profile not found.' });
+    const { schoolId } = profileDoc.data();
+
+    const jobRef = db.collection(COLLECTIONS.JOBS).doc(req.params.id);
+    const jobDoc = await jobRef.get();
+    if (!jobDoc.exists) return res.status(404).json({ success: false, message: 'Job not found.' });
+    const job = jobDoc.data();
+
+    if (job.status !== JOB_STATUS.OPEN) {
+      return res.status(400).json({ success: false, message: 'Job is not open.' });
+    }
+    if (!job.assignedSchools?.includes(schoolId)) {
+      return res.status(403).json({ success: false, message: 'This job is not assigned to your school.' });
+    }
+    if (job.schoolApprovals?.[schoolId]?.status === SCHOOL_APPROVAL_STATUS.FACULTY_APPROVED) {
+      return res.status(400).json({ success: false, message: 'Already approved for your school.' });
+    }
+
+    const now = new Date().toISOString();
+    await jobRef.update({
+      [`schoolApprovals.${schoolId}`]: {
+        status:          SCHOOL_APPROVAL_STATUS.FACULTY_APPROVED,
+        approvedBy:      req.user.uid,
+        approvedAt:      now,
+        rejectionReason: null,
+      },
+      updatedAt: now,
+    });
+
+    await auditLog({
+      actorUserId:    req.user.uid,
+      actorRole:      req.user.role,
+      actionType:     AUDIT_ACTION.FACULTY_APPROVE_JOB,
+      targetType:     'job',
+      targetId:       req.params.id,
+      payloadSummary: `Faculty approved "${job.title}" for school: ${schoolId}`,
+      ipAddress:      req.ip,
+    });
+
+    return res.json({ success: true, message: 'Job approved — students in your school can now apply.' });
+  } catch (error) {
+    console.error('facultyApproveJob error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to approve job.' });
+  }
+};
+
+/* ──────────── PATCH /api/jobs/:id/faculty-reject ──────────── */
+
+const facultyRejectJob = async (req, res) => {
+  try {
+    const { reason } = req.body;
+
+    const profileDoc = await db.collection(COLLECTIONS.FACULTY_PROFILES).doc(req.user.uid).get();
+    if (!profileDoc.exists) return res.status(404).json({ success: false, message: 'Faculty profile not found.' });
+    const { schoolId } = profileDoc.data();
+
+    const jobRef = db.collection(COLLECTIONS.JOBS).doc(req.params.id);
+    const jobDoc = await jobRef.get();
+    if (!jobDoc.exists) return res.status(404).json({ success: false, message: 'Job not found.' });
+    const job = jobDoc.data();
+
+    if (job.status !== JOB_STATUS.OPEN) {
+      return res.status(400).json({ success: false, message: 'Job is not open.' });
+    }
+    if (!job.assignedSchools?.includes(schoolId)) {
+      return res.status(403).json({ success: false, message: 'This job is not assigned to your school.' });
+    }
+
+    const now = new Date().toISOString();
+    await jobRef.update({
+      [`schoolApprovals.${schoolId}`]: {
+        status:          SCHOOL_APPROVAL_STATUS.FACULTY_REJECTED,
+        approvedBy:      null,
+        approvedAt:      null,
+        rejectionReason: reason || null,
+      },
+      updatedAt: now,
+    });
+
+    await auditLog({
+      actorUserId:    req.user.uid,
+      actorRole:      req.user.role,
+      actionType:     AUDIT_ACTION.FACULTY_REJECT_JOB,
+      targetType:     'job',
+      targetId:       req.params.id,
+      payloadSummary: `Faculty rejected "${job.title}" for school: ${schoolId}. Reason: ${reason}`,
+      ipAddress:      req.ip,
+    });
+
+    return res.json({ success: true, message: 'Job rejected for your school.' });
+  } catch (error) {
+    console.error('facultyRejectJob error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to reject job.' });
+  }
+};
+
+/* ──────────── GET /api/jobs/:id/suggested-schools ──────────── */
+
+const getSuggestedSchools = async (req, res) => {
+  try {
+    const jobDoc = await db.collection(COLLECTIONS.JOBS).doc(req.params.id).get();
+    if (!jobDoc.exists) {
+      return res.status(404).json({ success: false, message: 'Job not found.' });
+    }
+
+    const { title = '', description = '' } = jobDoc.data();
+    const text = `${title} ${description}`.toLowerCase();
+
+    const suggested = new Set();
+    const matchedRules = [];
+
+    for (const rule of JOB_ASSIGNMENT_RULES) {
+      if (rule.keywords.some((kw) => text.includes(kw))) {
+        rule.schoolIds.forEach((id) => suggested.add(id));
+        matchedRules.push(rule.label);
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        suggestedSchoolIds: [...suggested],
+        matchedRules,
+      },
+    });
+  } catch (error) {
+    console.error('Suggested schools error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to compute suggested schools.' });
+  }
+};
+
+module.exports = {
+  createJob,
+  listJobs,
+  getJob,
+  approveJob,
+  rejectJob,
+  closeJob,
+  withdrawJob,
+  assignJobToSchools,
+  facultyApproveJob,
+  facultyRejectJob,
+  getSuggestedSchools,
+};

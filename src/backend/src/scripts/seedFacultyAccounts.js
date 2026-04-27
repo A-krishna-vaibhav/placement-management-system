@@ -1,10 +1,19 @@
 /**
- * resetAndSeedUsers.js
- * ─────────────────────
- * 1. Deletes ALL users from Firebase Auth and their Firestore documents.
- * 2. Creates dev seed accounts: Admin, TPO, and 12 Faculty (one per school).
+ * seedFacultyAccounts.js
+ * ──────────────────────
+ * Targeted script — does NOT wipe all users.
  *
- * Run from src/backend/:  node src/scripts/resetAndSeedUsers.js
+ * 1. Removes legacy faculty1@dev.com and faculty2@dev.com from both
+ *    Firebase Auth and Firestore (users + facultyProfiles collections).
+ * 2. Removes any other existing FACULTY accounts (auth + Firestore) so
+ *    the 12 new ones are the single source of truth.
+ * 3. Creates exactly 12 faculty accounts — one per UoH school —
+ *    with email <schoolShortCode_lowercase>@dev.com and password 123456.
+ *    Each account gets a corresponding facultyProfiles document.
+ *
+ * Safe to run multiple times — idempotent per school (skips if email exists).
+ *
+ * Run from src/backend/:  node src/scripts/seedFacultyAccounts.js
  */
 
 require('dotenv').config();
@@ -12,7 +21,6 @@ require('dotenv').config();
 const { auth, db } = require('../config/firebase');
 const { ROLES, ACCOUNT_STATUS, COLLECTIONS } = require('../config/constants');
 
-// One faculty per school — email = <shortCode_lowercase>@dev.com
 const FACULTY_SEEDS = [
   { email: 'smms@dev.com', displayName: 'Faculty SMMS', schoolId: 'sms-math-stat' },
   { email: 'sop@dev.com',  displayName: 'Faculty SOP',  schoolId: 'sop'           },
@@ -28,67 +36,61 @@ const FACULTY_SEEDS = [
   { email: 'sest@dev.com', displayName: 'Faculty SEST', schoolId: 'sest'          },
 ];
 
-const BASE_USERS = [
-  { email: 'admin@dev.com', password: '123456', displayName: 'Admin', role: ROLES.ADMIN },
-  { email: 'tpo@dev.com',   password: '123456', displayName: 'TPO',   role: ROLES.TPO  },
-];
+const LEGACY_FACULTY_EMAILS = ['faculty1@dev.com', 'faculty2@dev.com'];
 
-async function deleteAllUsers() {
-  console.log('\n🗑   Deleting all Firebase Auth users...');
-  let pageToken;
-  let totalDeleted = 0;
-
-  do {
-    const result = await auth.listUsers(1000, pageToken);
-    if (result.users.length === 0) break;
-
-    const uids = result.users.map((u) => u.uid);
-    await auth.deleteUsers(uids);
-    totalDeleted += uids.length;
-    console.log(`    Deleted ${uids.length} auth user(s)`);
-    pageToken = result.pageToken;
-  } while (pageToken);
-
-  console.log(`    Total auth users deleted: ${totalDeleted}`);
+async function deleteAuthByEmail(email) {
+  try {
+    const record = await auth.getUserByEmail(email);
+    await auth.deleteUser(record.uid);
+    console.log(`    Auth deleted: ${email} (uid: ${record.uid})`);
+    return record.uid;
+  } catch (err) {
+    if (err.code === 'auth/user-not-found') {
+      console.log(`    Auth not found (skipped): ${email}`);
+      return null;
+    }
+    throw err;
+  }
 }
 
-async function deleteAllFirestoreUsers() {
-  console.log('\n🗑   Deleting all Firestore user documents...');
-  const snapshot = await db.collection(COLLECTIONS.USERS).get();
-  if (snapshot.empty) { console.log('    No Firestore user docs found.'); return; }
-
+async function deleteFirestoreUser(uid) {
+  if (!uid) return;
   const batch = db.batch();
-  snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+  batch.delete(db.collection(COLLECTIONS.USERS).doc(uid));
+  batch.delete(db.collection(COLLECTIONS.FACULTY_PROFILES).doc(uid));
   await batch.commit();
-  console.log(`    Deleted ${snapshot.size} Firestore user document(s)`);
+  console.log(`    Firestore docs deleted for uid: ${uid}`);
 }
 
-async function deleteAllFacultyProfiles() {
-  console.log('\n🗑   Deleting all Firestore facultyProfile documents...');
-  const snapshot = await db.collection(COLLECTIONS.FACULTY_PROFILES).get();
-  if (snapshot.empty) { console.log('    No faculty profiles found.'); return; }
+async function purgeAllExistingFaculty() {
+  console.log('\n🔍  Finding all existing FACULTY Firestore accounts...');
+  const snap = await db.collection(COLLECTIONS.USERS)
+    .where('role', '==', ROLES.FACULTY).get();
 
-  const batch = db.batch();
-  snapshot.docs.forEach((doc) => batch.delete(doc.ref));
-  await batch.commit();
-  console.log(`    Deleted ${snapshot.size} faculty profile(s)`);
-}
+  if (snap.empty) { console.log('    None found.'); return; }
 
-async function createBaseUser({ email, password, displayName, role }) {
-  const userRecord = await auth.createUser({ email, password, displayName, emailVerified: true });
-  await auth.setCustomUserClaims(userRecord.uid, { role });
-
-  const now = new Date().toISOString();
-  await db.collection(COLLECTIONS.USERS).doc(userRecord.uid).set({
-    uid: userRecord.uid, email, fullName: displayName,
-    role, status: ACCOUNT_STATUS.ACTIVE,
-    createdAt: now, updatedAt: now, lastLoginAt: null,
-  });
-
-  console.log(`  ✅  ${role.padEnd(8)} | ${email.padEnd(30)} | uid: ${userRecord.uid}`);
+  for (const doc of snap.docs) {
+    const { email } = doc.data();
+    console.log(`    Removing existing faculty: ${email} (${doc.id})`);
+    try { await auth.deleteUser(doc.id); } catch (e) { /* already gone */ }
+    const batch = db.batch();
+    batch.delete(doc.ref);
+    batch.delete(db.collection(COLLECTIONS.FACULTY_PROFILES).doc(doc.id));
+    await batch.commit();
+  }
+  console.log(`    Removed ${snap.size} existing faculty account(s).`);
 }
 
 async function createFaculty({ email, displayName, schoolId }) {
+  // Skip if already exists in Firebase Auth
+  try {
+    await auth.getUserByEmail(email);
+    console.log(`    Already exists (skipped): ${email}`);
+    return;
+  } catch (err) {
+    if (err.code !== 'auth/user-not-found') throw err;
+  }
+
   const userRecord = await auth.createUser({
     email, password: '123456', displayName, emailVerified: true,
   });
@@ -110,33 +112,33 @@ async function createFaculty({ email, displayName, schoolId }) {
   });
 
   await batch.commit();
-  console.log(`  ✅  FACULTY   | ${email.padEnd(30)} | schoolId: ${schoolId}`);
+  console.log(`  ✅  FACULTY | ${email.padEnd(25)} | school: ${schoolId} | uid: ${userRecord.uid}`);
 }
 
 async function main() {
   console.log('═══════════════════════════════════════════════════════════');
-  console.log('  PMS Dev Reset & Seed');
+  console.log('  PMS Faculty Account Seed (targeted — preserves other users)');
   console.log('═══════════════════════════════════════════════════════════');
 
-  await deleteAllUsers();
-  await deleteAllFirestoreUsers();
-  await deleteAllFacultyProfiles();
+  // Step 1: Remove legacy accounts
+  console.log('\n🗑   Removing legacy faculty accounts...');
+  for (const email of LEGACY_FACULTY_EMAILS) {
+    const uid = await deleteAuthByEmail(email);
+    await deleteFirestoreUser(uid);
+  }
 
-  console.log('\n🌱  Creating base seed users (Admin, TPO)...');
-  for (const user of BASE_USERS) await createBaseUser(user);
+  // Step 2: Remove ALL existing faculty (clean slate for 12 new ones)
+  await purgeAllExistingFaculty();
 
-  console.log('\n🌱  Creating 12 faculty accounts (one per school)...');
+  // Step 3: Create 12 new faculty accounts
+  console.log('\n🌱  Creating 12 faculty accounts...');
   for (const fac of FACULTY_SEEDS) await createFaculty(fac);
 
   console.log('\n═══════════════════════════════════════════════════════════');
-  console.log('  Done! Credentials (all passwords: 123456)');
+  console.log('  Done! All 12 faculty accounts created (password: 123456)');
   console.log('═══════════════════════════════════════════════════════════');
-  for (const { email, role } of BASE_USERS) {
-    console.log(`  ${role.padEnd(8)} | ${email}`);
-  }
-  console.log('  ---');
   for (const { email, schoolId } of FACULTY_SEEDS) {
-    console.log(`  FACULTY  | ${email.padEnd(25)} | school: ${schoolId}`);
+    console.log(`  ${email.padEnd(25)} → ${schoolId}`);
   }
   console.log('═══════════════════════════════════════════════════════════\n');
 

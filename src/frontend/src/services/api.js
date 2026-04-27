@@ -71,11 +71,14 @@ export const adminAPI = {
   provisionTPO: (token, payload) =>
     apiRequest('/admin/tpo', { method: 'POST', token, body: payload }),
 
-  approveCompany: (token, userId) =>
-    apiRequest(`/admin/companies/${userId}/approve`, { method: 'POST', token }),
+  listPendingCompanies: (token) =>
+    apiRequest('/admin/companies/pending', { token }),
 
-  rejectCompany: (token, userId, reason) =>
-    apiRequest(`/admin/companies/${userId}/reject`, { method: 'POST', token, body: { reason } }),
+  approveCompany: (token, companyId) =>
+    apiRequest(`/admin/companies/${companyId}/approve`, { method: 'PATCH', token }),
+
+  rejectCompany: (token, companyId, reason) =>
+    apiRequest(`/admin/companies/${companyId}/reject`, { method: 'PATCH', token, body: { reason } }),
 };
 
 /* ─── Declaration API ─── */
@@ -97,23 +100,6 @@ export const studentProfileAPI = {
 
   update: (token, payload) =>
     apiRequest('/profile', { method: 'PATCH', token, body: payload }),
-
-  uploadResume: (token, file) => {
-    const formData = new FormData();
-    formData.append('resume', file);
-    return fetch(`${API_URL}/profile/resume`, {
-      method:  'POST',
-      headers: { Authorization: `Bearer ${token}` },
-      body:    formData,
-    }).then(async (r) => {
-      const data = await r.json();
-      if (!r.ok) { const e = new Error(data.message || 'Upload failed'); e.status = r.status; throw e; }
-      return data;
-    });
-  },
-
-  deleteResume: (token, versionId) =>
-    apiRequest(`/profile/resume/${versionId}`, { method: 'DELETE', token }),
 };
 
 /* ─── Company API ─── */
@@ -150,6 +136,18 @@ export const jobAPI = {
   withdraw: (token, jobId) =>
     apiRequest(`/jobs/${jobId}/withdraw`, { method: 'PATCH', token }),
 
+  assign: (token, jobId, schoolIds) =>
+    apiRequest(`/jobs/${jobId}/assign`, { method: 'PATCH', token, body: { schoolIds } }),
+
+  suggestedSchools: (token, jobId) =>
+    apiRequest(`/jobs/${jobId}/suggested-schools`, { token }),
+
+  facultyApprove: (token, jobId) =>
+    apiRequest(`/jobs/${jobId}/faculty-approve`, { method: 'PATCH', token }),
+
+  facultyReject: (token, jobId, reason) =>
+    apiRequest(`/jobs/${jobId}/faculty-reject`, { method: 'PATCH', token, body: { reason } }),
+
   listApplications: (token, jobId) =>
     apiRequest(`/jobs/${jobId}/applications`, { token }),
 
@@ -157,18 +155,148 @@ export const jobAPI = {
     apiRequest(`/jobs/${jobId}/applications/${appId}/status`, {
       method: 'PATCH', token, body: { status, note },
     }),
+
+  getResume: (token, jobId, appId) =>
+    apiRequest(`/jobs/${jobId}/applications/${appId}/resume`, { token }),
 };
 
 /* ─── Application API ─── */
 export const applicationAPI = {
-  apply: (token, jobId, payload) =>
-    apiRequest(`/jobs/${jobId}/apply`, { method: 'POST', token, body: payload }),
+  apply: async (token, jobId, file) => {
+    const formData = new FormData();
+    formData.append('resume', file);
+    const r = await fetch(`${API_URL}/jobs/${jobId}/apply`, {
+      method:  'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body:    formData,
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      const e = new Error(data.message || 'Application failed');
+      e.status = r.status;
+      e.data = data;
+      throw e;
+    }
+    return data;
+  },
 
   listMine: (token) =>
     apiRequest('/applications', { token }),
 
   withdraw: (token, appId) =>
     apiRequest(`/applications/${appId}/withdraw`, { method: 'PATCH', token }),
+};
+
+/* ─── Faculty API ─── */
+export const facultyAPI = {
+  getMyJobs: (token) =>
+    apiRequest('/faculty/jobs', { token }),
+};
+
+/* ─── Exam Schedule API ─── */
+export const examAPI = {
+  // Company
+  request: (token, jobId, body) =>
+    apiRequest(`/jobs/${jobId}/exam-schedule`, { method: 'POST', token, body }),
+
+  updateLink: (token, scheduleId, examLink) =>
+    apiRequest(`/exam-schedules/${scheduleId}/exam-link`, { method: 'PATCH', token, body: { examLink } }),
+
+  getByJob: (token, jobId) =>
+    apiRequest(`/jobs/${jobId}/exam-schedule`, { token }),
+
+  // TPO / Admin
+  forward: (token, scheduleId) =>
+    apiRequest(`/exam-schedules/${scheduleId}/forward`, { method: 'PATCH', token }),
+
+  finalize: (token, scheduleId, body) =>
+    apiRequest(`/exam-schedules/${scheduleId}/finalize`, { method: 'PATCH', token, body }),
+
+  assignVenue: (token, scheduleId, body) =>
+    apiRequest(`/exam-schedules/${scheduleId}/assign-venue`, { method: 'PATCH', token, body }),
+
+  cancel: (token, scheduleId, reason) =>
+    apiRequest(`/exam-schedules/${scheduleId}/cancel`, { method: 'PATCH', token, body: { reason } }),
+
+  // Faculty
+  facultyConfirm: (token, scheduleId, body) =>
+    apiRequest(`/exam-schedules/${scheduleId}/faculty-confirm`, { method: 'PATCH', token, body }),
+
+  // Shared read
+  list: (token) =>
+    apiRequest('/exam-schedules', { token }),
+
+  get: (token, scheduleId) =>
+    apiRequest(`/exam-schedules/${scheduleId}`, { token }),
+
+  // Student
+  myExams: (token) =>
+    apiRequest('/my-exams', { token }),
+};
+
+/* ─── Interview API ─── */
+export const interviewAPI = {
+  // Company
+  request: (token, jobId, body) =>
+    apiRequest(`/jobs/${jobId}/interview-request`, { method: 'POST', token, body }),
+
+  updateCommonLink: (token, scheduleId, commonLink) =>
+    apiRequest(`/interview-schedules/${scheduleId}/common-link`, { method: 'PATCH', token, body: { commonLink } }),
+
+  updateSlotLink: (token, slotId, link) =>
+    apiRequest(`/interview-slots/${slotId}/link`, { method: 'PATCH', token, body: { link } }),
+
+  // TPO / Admin
+  forward: (token, scheduleId) =>
+    apiRequest(`/interview-schedules/${scheduleId}/forward`, { method: 'PATCH', token }),
+
+  schedule: (token, scheduleId, body) =>
+    apiRequest(`/interview-schedules/${scheduleId}/schedule`, { method: 'PATCH', token, body }),
+
+  cancel: (token, scheduleId, reason) =>
+    apiRequest(`/interview-schedules/${scheduleId}/cancel`, { method: 'PATCH', token, body: { reason } }),
+
+  complete: (token, scheduleId) =>
+    apiRequest(`/interview-schedules/${scheduleId}/complete`, { method: 'PATCH', token }),
+
+  // Faculty
+  facultyConfirm: (token, scheduleId, body) =>
+    apiRequest(`/interview-schedules/${scheduleId}/faculty-confirm`, { method: 'PATCH', token, body }),
+
+  // Student
+  bookSlot: (token, slotId) =>
+    apiRequest(`/interview-slots/${slotId}/book`, { method: 'POST', token }),
+
+  cancelSlot: (token, slotId) =>
+    apiRequest(`/interview-slots/${slotId}/book`, { method: 'DELETE', token }),
+
+  myInterviews: (token) =>
+    apiRequest('/my-interviews', { token }),
+
+  // Shared reads
+  getByJob: (token, jobId) =>
+    apiRequest(`/jobs/${jobId}/interview-schedule`, { token }),
+
+  list: (token) =>
+    apiRequest('/interview-schedules', { token }),
+
+  get: (token, scheduleId) =>
+    apiRequest(`/interview-schedules/${scheduleId}`, { token }),
+
+  listSlots: (token, scheduleId) =>
+    apiRequest(`/interview-schedules/${scheduleId}/slots`, { token }),
+};
+
+/* ─── Announcement API ─── */
+export const announcementAPI = {
+  list: (token) =>
+    apiRequest('/announcements', { token }),
+
+  create: (token, payload) =>
+    apiRequest('/announcements', { method: 'POST', token, body: payload }),
+
+  remove: (token, id) =>
+    apiRequest(`/announcements/${id}`, { method: 'DELETE', token }),
 };
 
 /* ─── Stats API ─── */

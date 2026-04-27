@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -10,7 +10,7 @@ import {
   HiOutlineOfficeBuilding, HiOutlineLocationMarker, HiOutlineBriefcase,
   HiOutlineCurrencyRupee, HiOutlineUsers, HiOutlineCalendar,
   HiOutlineCheckCircle, HiOutlineShieldCheck, HiOutlineExclamation,
-  HiOutlineArrowLeft,
+  HiOutlineArrowLeft, HiOutlineUpload, HiOutlineDocumentText,
 } from 'react-icons/hi';
 
 const STATUS_VARIANT = {
@@ -36,8 +36,9 @@ const JobDetailPage = () => {
   const [existingApp, setExistingApp] = useState(null);
   const [hasSigned, setHasSigned]   = useState(false);
   const [profileComplete, setProfileComplete] = useState(false);
-  const [hasResume, setHasResume]   = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
   const [readinessLoaded, setReadinessLoaded] = useState(false);
+  const fileRef = useRef(null);
 
   useEffect(() => {
     (async () => {
@@ -57,7 +58,6 @@ const JobDetailPage = () => {
           setHasSigned((declRes.data || []).length > 0);
           const p = profileRes.data || {};
           setProfileComplete(!!p.profileComplete);
-          setHasResume((p.resumes || []).length > 0);
           setReadinessLoaded(true);
         }
       } catch (e) {
@@ -77,14 +77,14 @@ const JobDetailPage = () => {
       toast.error('Please complete your profile before applying.');
       return;
     }
-    if (!hasResume) {
-      toast.error('Please upload a resume before applying.');
+    if (!selectedFile) {
+      toast.error('Please attach your resume PDF before applying.');
       return;
     }
     setApplying(true);
     try {
       const token = await getToken();
-      const res = await applicationAPI.apply(token, id, {});
+      const res = await applicationAPI.apply(token, id, selectedFile);
       setExistingApp(res.data);
       toast.success('Application submitted successfully!');
       navigate('/applications');
@@ -259,9 +259,8 @@ const JobDetailPage = () => {
                 {readinessLoaded && (
                   <div className="space-y-2">
                     {[
-                      { ok: hasSigned,        label: 'PGAB Declaration signed', link: '/profile' },
-                      { ok: profileComplete,   label: 'Profile complete',        link: '/profile' },
-                      { ok: hasResume,         label: 'Resume uploaded',         link: '/profile' },
+                      { ok: hasSigned,      label: 'PGAB Declaration signed', link: '/profile' },
+                      { ok: profileComplete, label: 'Profile complete',        link: '/profile' },
                     ].map(({ ok, label, link }) => (
                       <div key={label} className="flex items-center gap-2 text-sm">
                         {ok ? (
@@ -270,25 +269,56 @@ const JobDetailPage = () => {
                           <HiOutlineExclamation className="w-4 h-4 text-amber-500 flex-shrink-0" />
                         )}
                         <span className={ok ? 'text-ink-600' : 'text-amber-700'}>
-                          {ok ? label : (
-                            <Link to={link} className="underline">{label}</Link>
-                          )}
+                          {ok ? label : <Link to={link} className="underline">{label}</Link>}
                         </span>
                       </div>
                     ))}
                   </div>
                 )}
 
+                {/* Resume picker */}
+                <div>
+                  <p className="text-xs font-medium text-ink-500 uppercase tracking-wide mb-1.5">
+                    Resume for this application <span className="text-red-500">*</span>
+                  </p>
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept="application/pdf"
+                    className="hidden"
+                    onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                  />
+                  {selectedFile ? (
+                    <div className="flex items-center gap-2 p-2.5 bg-cream-50 border border-ink-200 rounded-xl">
+                      <HiOutlineDocumentText className="w-4 h-4 text-maroon-600 flex-shrink-0" />
+                      <p className="text-xs text-ink-700 truncate flex-1">{selectedFile.name}</p>
+                      <button
+                        onClick={() => { setSelectedFile(null); if (fileRef.current) fileRef.current.value = ''; }}
+                        className="text-ink-400 hover:text-red-500 flex-shrink-0"
+                      >
+                        <HiOutlineExclamation className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => fileRef.current?.click()}
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2.5 border-2 border-dashed border-ink-200 rounded-xl text-sm text-ink-500 hover:border-maroon-400 hover:text-maroon-600 transition-colors"
+                    >
+                      <HiOutlineUpload className="w-4 h-4" /> Choose PDF resume
+                    </button>
+                  )}
+                </div>
+
                 <Button
                   className="w-full"
                   onClick={handleApply}
                   loading={applying}
-                  disabled={readinessLoaded && (!hasSigned || !profileComplete || !hasResume)}
+                  disabled={readinessLoaded && (!hasSigned || !profileComplete || !selectedFile)}
                 >
-                  Apply Now
+                  Submit Application
                 </Button>
 
-                {readinessLoaded && (!hasSigned || !profileComplete || !hasResume) && (
+                {readinessLoaded && (!hasSigned || !profileComplete) && (
                   <p className="text-xs text-amber-600 text-center">
                     Complete all requirements above before applying.
                   </p>

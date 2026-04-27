@@ -3,7 +3,8 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   HiOutlineHome, HiOutlineUsers, HiOutlineX,
   HiOutlineUser, HiOutlineBriefcase, HiOutlineClipboardList,
-  HiOutlineOfficeBuilding, HiOutlineDocumentText,
+  HiOutlineOfficeBuilding, HiOutlineDocumentText, HiOutlineSpeakerphone,
+  HiOutlineCalendar,
 } from 'react-icons/hi';
 import { Logo } from './ui';
 
@@ -46,11 +47,42 @@ const allLinks = [
     icon: HiOutlineOfficeBuilding,
     roles: ['COMPANY'],
   },
+  // Student — exam schedule
+  {
+    to: '/my-exams',
+    label: 'My Exams',
+    icon: HiOutlineCalendar,
+    roles: ['STUDENT'],
+  },
+  {
+    to: '/my-interviews',
+    label: 'My Interviews',
+    icon: HiOutlineCalendar,
+    roles: ['STUDENT'],
+  },
   // Faculty
   {
     to: '/faculty/students',
-    label: 'Department Students',
+    label: 'School Students',
+    icon: HiOutlineUsers,
+    roles: ['FACULTY'],
+  },
+  {
+    to: '/faculty/jobs',
+    label: 'School Jobs',
     icon: HiOutlineBriefcase,
+    roles: ['FACULTY'],
+  },
+  {
+    to: '/faculty/exams',
+    label: 'Exam Coordination',
+    icon: HiOutlineCalendar,
+    roles: ['FACULTY'],
+  },
+  {
+    to: '/faculty/interviews',
+    label: 'Interview Coordination',
+    icon: HiOutlineCalendar,
     roles: ['FACULTY'],
   },
   // TPO + Admin
@@ -58,13 +90,25 @@ const allLinks = [
     to: '/tpo/jobs',
     label: 'Manage Jobs',
     icon: HiOutlineBriefcase,
-    roles: ['TPO', 'ADMIN'],
+    roles: ['TPO'],
   },
   {
     to: '/tpo/companies',
     label: 'Pending Companies',
     icon: HiOutlineOfficeBuilding,
-    roles: ['TPO', 'ADMIN'],
+    roles: ['TPO'],
+  },
+  {
+    to: '/tpo/exam-schedules',
+    label: 'Exam Scheduling',
+    icon: HiOutlineCalendar,
+    roles: ['TPO'],
+  },
+  {
+    to: '/tpo/interview-schedules',
+    label: 'Interview Scheduling',
+    icon: HiOutlineCalendar,
+    roles: ['TPO'],
   },
   // Admin
   {
@@ -72,6 +116,13 @@ const allLinks = [
     label: 'Manage Users',
     icon: HiOutlineUsers,
     roles: ['ADMIN'],
+  },
+  // Announcements — visible to all roles
+  {
+    to: '/announcements',
+    label: 'Announcements',
+    icon: HiOutlineSpeakerphone,
+    roles: ['STUDENT', 'FACULTY', 'TPO', 'COMPANY', 'ADMIN'],
   },
 ];
 

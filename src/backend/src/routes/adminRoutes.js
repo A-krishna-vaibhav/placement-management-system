@@ -1,16 +1,3 @@
-/**
- * Admin Routes
- * ────────────
- * GET    /api/admin/users                       — list users (filterable)
- * PATCH  /api/admin/users/:id/role              — update user role
- * PATCH  /api/admin/users/:id/status            — update user status
- * DELETE /api/admin/users/:id                   — delete user
- * POST   /api/admin/users/faculty               — provision Faculty (Admin only)
- * POST   /api/admin/users/tpo                   — provision TPO (Admin only)
- * PATCH  /api/admin/companies/:companyId/approve — approve company (Admin or TPO)
- * PATCH  /api/admin/companies/:companyId/reject  — reject company (Admin or TPO)
- */
-
 const express = require('express');
 const router = express.Router();
 
@@ -23,6 +10,7 @@ const {
   provisionTPO,
   approveCompany,
   rejectCompany,
+  listPendingCompanies,
 } = require('../controllers/adminController');
 
 const { authenticate, authorize } = require('../middleware/auth');
@@ -58,6 +46,11 @@ router.post('/users/faculty',
 router.post('/users/tpo',
   authenticate, authorize(ROLES.ADMIN),
   provisionTPO);
+
+// Company listing — Admin or TPO
+router.get('/companies/pending',
+  authenticate, authorize(ROLES.ADMIN, ROLES.TPO),
+  listPendingCompanies);
 
 // Company approval — Admin or TPO
 router.patch('/companies/:companyId/approve',
