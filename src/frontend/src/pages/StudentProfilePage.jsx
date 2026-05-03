@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { studentProfileAPI, declarationAPI, referenceAPI } from '../services/api';
 import { Button, Card, Badge, PageHeader, Alert } from '../components/ui';
 import toast from 'react-hot-toast';
+import { validateProfileForm } from '../utils/profileValidation';
 import {
   HiOutlineUser, HiOutlinePencil, HiOutlineX, HiOutlineCheck,
   HiOutlineShieldCheck, HiOutlineExclamation,
@@ -140,6 +141,7 @@ const StudentProfilePage = () => {
   const [loading, setLoading]           = useState(true);
   const [saving, setSaving]             = useState(false);
   const [editing, setEditing]           = useState(false);
+  const [formErrors, setFormErrors]     = useState({});
   const [schools, setSchools]           = useState([]);
   const [departments, setDepartments]   = useState([]);
   const [form, setForm]                 = useState({});
@@ -194,6 +196,14 @@ const StudentProfilePage = () => {
   }, [form.schoolId]);
 
   const handleSave = async () => {
+    // Client-side validation before hitting the API
+    const { valid, errors } = validateProfileForm(form);
+    if (!valid) {
+      setFormErrors(errors);
+      toast.error('Please fix the highlighted errors before saving.');
+      return;
+    }
+    setFormErrors({});
     setSaving(true);
     try {
       const token = await getToken();
@@ -282,12 +292,24 @@ const StudentProfilePage = () => {
             <div key={key}>
               <label className="block text-xs font-medium text-ink-400 uppercase tracking-wide mb-1">{label}</label>
               {editing ? (
-                <input
-                  type={['cgpa', 'backlogs', 'joiningYear', 'graduationYear'].includes(key) ? 'number' : 'text'}
-                  value={form[key]}
-                  onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-                  className="w-full border border-ink-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-maroon-500"
-                />
+                <>
+                  <input
+                    type={['cgpa', 'backlogs', 'joiningYear', 'graduationYear'].includes(key) ? 'number' : 'text'}
+                    value={form[key]}
+                    onChange={(e) => {
+                      setForm((f) => ({ ...f, [key]: e.target.value }));
+                      if (formErrors[key]) setFormErrors((fe) => ({ ...fe, [key]: '' }));
+                    }}
+                    className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ${
+                      formErrors[key]
+                        ? 'border-red-400 focus:ring-red-400'
+                        : 'border-ink-300 focus:ring-maroon-500'
+                    }`}
+                  />
+                  {formErrors[key] && (
+                    <p className="text-xs text-red-600 mt-1">⚠ {formErrors[key]}</p>
+                  )}
+                </>
               ) : (
                 <p className="text-sm text-ink-700 font-medium">{profile?.[key] ?? '—'}</p>
               )}
@@ -337,13 +359,25 @@ const StudentProfilePage = () => {
         <div>
           <label className="block text-xs font-medium text-ink-400 uppercase tracking-wide mb-1">Skills (comma-separated)</label>
           {editing ? (
-            <input
-              type="text"
-              value={form.skills}
-              onChange={(e) => setForm((f) => ({ ...f, skills: e.target.value }))}
-              className="w-full border border-ink-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-maroon-500"
-              placeholder="e.g. Python, React, SQL"
-            />
+            <>
+              <input
+                type="text"
+                value={form.skills}
+                onChange={(e) => {
+                  setForm((f) => ({ ...f, skills: e.target.value }));
+                  if (formErrors.skills) setFormErrors((fe) => ({ ...fe, skills: '' }));
+                }}
+                className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ${
+                  formErrors.skills
+                    ? 'border-red-400 focus:ring-red-400'
+                    : 'border-ink-300 focus:ring-maroon-500'
+                }`}
+                placeholder="e.g. Python, React, SQL"
+              />
+              {formErrors.skills && (
+                <p className="text-xs text-red-600 mt-1">⚠ {formErrors.skills}</p>
+              )}
+            </>
           ) : (
             <div className="flex flex-wrap gap-2 mt-1">
               {(profile?.skills || []).length === 0

@@ -11,6 +11,8 @@
     "lint": "eslint . --ext js,jsx"
   },
   "dependencies": {
+    "@react-three/drei": "^9.122.0",
+    "@react-three/fiber": "^8.18.0",
     "clsx": "^2.1.1",
     "firebase": "^10.8.0",
     "motion": "^12.38.0",
@@ -21,7 +23,8 @@
     "react-icons": "^5.0.1",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^6.22.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "three": "^0.184.0"
   },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.19",

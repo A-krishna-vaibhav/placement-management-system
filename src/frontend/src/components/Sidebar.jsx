@@ -90,25 +90,25 @@ const allLinks = [
     to: '/tpo/jobs',
     label: 'Manage Jobs',
     icon: HiOutlineBriefcase,
-    roles: ['TPO'],
+    roles: ['TPO', 'ADMIN'],
   },
   {
     to: '/tpo/companies',
     label: 'Pending Companies',
     icon: HiOutlineOfficeBuilding,
-    roles: ['TPO'],
+    roles: ['TPO', 'ADMIN'],
   },
   {
     to: '/tpo/exam-schedules',
     label: 'Exam Scheduling',
     icon: HiOutlineCalendar,
-    roles: ['TPO'],
+    roles: ['TPO', 'ADMIN'],
   },
   {
     to: '/tpo/interview-schedules',
     label: 'Interview Scheduling',
     icon: HiOutlineCalendar,
-    roles: ['TPO'],
+    roles: ['TPO', 'ADMIN'],
   },
   // Admin
   {

@@ -73,9 +73,10 @@ export default {
 
       // ── Typography ──────────────────────────────────────────────────────
       fontFamily: {
-        display: ['Fraunces', 'Georgia', 'Cambria', 'Times New Roman', 'serif'],
-        sans:    ['Source Sans 3', 'Inter', '-apple-system', 'system-ui', 'sans-serif'],
-        mono:    ['JetBrains Mono', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
+        display:  ['Playfair Display', 'Fraunces', 'Georgia', 'Cambria', 'Times New Roman', 'serif'],
+        sans:     ['DM Sans', 'Source Sans 3', 'Inter', '-apple-system', 'system-ui', 'sans-serif'],
+        fraunces: ['Fraunces', 'Georgia', 'serif'],
+        mono:     ['JetBrains Mono', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
       },
 
       fontSize: {

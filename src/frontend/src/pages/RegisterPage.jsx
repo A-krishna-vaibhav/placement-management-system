@@ -8,6 +8,7 @@ import {
 } from 'react-icons/hi';
 import { Button, Alert, Logo } from '../components/ui';
 import { referenceAPI } from '../services/api';
+import { validateRegisterForm } from '../utils/profileValidation';
 
 const UNIVERSITY_DOMAIN = import.meta.env.VITE_UNIVERSITY_EMAIL_DOMAIN || 'uohyd.ac.in';
 
@@ -82,38 +83,9 @@ const RegisterPage = () => {
   };
 
   const validate = () => {
-    const errs = {};
-    if (!form.fullName.trim() || form.fullName.trim().length < 2)
-      errs.fullName = 'Full name (min 2 chars) is required.';
-
-    if (!form.email.trim()) {
-      errs.email = 'Email is required.';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
-      errs.email = 'Invalid email address.';
-    } else if (form.role === 'STUDENT' && !form.email.trim().toLowerCase().endsWith(`@${UNIVERSITY_DOMAIN}`)) {
-      errs.email = `Students must use their university email (@${UNIVERSITY_DOMAIN}).`;
-    }
-
-    if (!form.password) {
-      errs.password = 'Password is required.';
-    } else if (form.password.length < 6) {
-      errs.password = 'Password must be at least 6 characters.';
-    }
-
-    if (form.password !== form.confirmPassword)
-      errs.confirmPassword = 'Passwords do not match.';
-
-    if (form.role === 'STUDENT') {
-      if (!form.schoolId) errs.schoolId = 'Please select a school.';
-      if (!form.departmentId) errs.departmentId = 'Please select a department.';
-    }
-
-    if (form.role === 'COMPANY') {
-      if (!form.companyName.trim()) errs.companyName = 'Company name is required.';
-    }
-
+    const { valid, errors: errs } = validateRegisterForm(form);
     setErrors(errs);
-    return Object.keys(errs).length === 0;
+    return valid;
   };
 
   const handleSubmit = async (e) => {

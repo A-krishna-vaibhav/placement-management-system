@@ -9,16 +9,19 @@ const SIZES = {
 
 export default function Logo({ variant = 'full', theme = 'dark', size = 'md', className = '' }) {
   const { mark, text } = SIZES[size] || SIZES.md;
-  const textCls  = theme === 'light' ? 'text-white' : 'text-ink-800';
-  // When theme is light, invert the maroon logo to white as a stopgap until a proper white asset is available
-  const filterCls = theme === 'light' ? 'brightness-0 invert' : '';
+  const textCls = theme === 'light' ? 'text-white' : 'text-ink-800';
+  // On dark backgrounds keep the crest legible: drop-shadow lifts it from the bg.
+  // No colour inversion — the official crest has its own maroon+white colouring.
+  const imgCls  = theme === 'light'
+    ? 'drop-shadow-[0_1px_4px_rgba(0,0,0,0.55)]'
+    : 'drop-shadow-sm';
 
   return (
     <div className={clsx('flex items-center gap-3', className)}>
       <img
         src={uohLogo}
         alt="University of Hyderabad"
-        className={clsx('object-contain drop-shadow-sm', mark, filterCls)}
+        className={clsx('object-contain', mark, imgCls)}
       />
       {variant === 'full' && (
         <div className={clsx('leading-tight', textCls)}>
